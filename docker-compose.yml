@@ -1,0 +1,56 @@
+services:
+  db_honey:
+    build: ./db 
+    container_name: postgres_db_honey
+    restart: always
+    env_file: .env
+    ports:
+      - "${POSTGRES_PORT}:5432" 
+    volumes:
+      - honey_bot_postgres_data:/var/lib/postgresql/data
+    networks:
+      - tg_app_net_honey
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+
+  bot_honey:
+    build: ./bot
+    container_name: tg_bot_honey
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./bot:/bot
+      - bot_logs:/app/logs
+    depends_on:
+      db_honey:
+        condition: service_healthy
+    networks:
+      - tg_app_net_honey
+
+  log-viewer_honey:
+    build: ./log_viewer
+    container_name: log_viewer_honey
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${LOG_VIEWER_PORT}:${LOG_VIEWER_PORT}"
+    environment:
+      # Явно передаем порт внутрь, чтобы python-скрипт его видел
+      - LOG_VIEWER_PORT=${LOG_VIEWER_PORT}
+    volumes:
+      - bot_logs:/app/logs:ro
+    depends_on:
+      - bot_honey
+    networks:
+      - tg_app_net_honey
+
+volumes:
+  # Подключаем существующий том
+  honey_bot_postgres_data:
+    external: true
+    name: easysochi_temp_postgres_data_honey 
+  bot_logs:
+
+networks:
+  tg_app_net_honey:
+    driver: bridge

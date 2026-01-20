@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.env
+*.env
+
+# Но разрешить файл с примером
+!/.env.example
+
+# Docker
+*.pid
+*.sock
+*.log
+logs/
+*/logs/
+bot_logs_*/
+postgres_data_*/
+*.sqlite3
+
+# System
+.DS_Store
+.idea/
+.vscode/
+
+# Backups
+*.dump
+*.bak
+*.backup
+*.sql
+
+# Byte-compiled / temporary
+*.swp
+*.swo
