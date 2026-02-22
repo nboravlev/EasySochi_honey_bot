@@ -22,8 +22,17 @@ COPY . /bot/
 
 RUN chmod +x /bot/entrypoint.sh  
 
+# Create non-root user for security and set proper permissions
+RUN useradd -m -u 1000 honeybot && \
+    chown -R honeybot:honeybot /bot
+
+# Switch to non-root user
+USER honeybot
+
 # ENTRYPOINT прописан в образе
 ENTRYPOINT ["/bot/entrypoint.sh"]
+
+
 
 # CMD можно оставить универсальным
 CMD ["bot"]

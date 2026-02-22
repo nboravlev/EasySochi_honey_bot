@@ -45,10 +45,12 @@ services:
       - tg_app_net_honey
 
 volumes:
-  # Подключаем существующий том
   honey_bot_postgres_data:
-    external: true
-    name: easysochi_temp_postgres_data_honey 
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/easysochi/postgres_honey
   bot_logs:
 
 networks:

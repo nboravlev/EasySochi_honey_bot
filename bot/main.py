@@ -84,8 +84,14 @@ def main():
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN is not set in .env")
 
-
-    app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
+    # добавлен тайм-аут в связи с тем, что ТГ блокируют, он не успевает отвечать на запрос и возвращает ошибку
+    app = ApplicationBuilder()\
+    .token(BOT_TOKEN)\
+    .connect_timeout(30)\
+    .read_timeout(30)\
+    .write_timeout(60)\
+    .post_init(post_init)\
+    .build()
 
     #глобальные обработчики
     app.add_handler(CommandHandler("info",info_command), group=0)
