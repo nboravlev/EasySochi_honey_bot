@@ -54,7 +54,7 @@ volumes:
       type: none
       o: bind
       device: /data/easysochi/postgres_honey
-  media_honey:
+  bot_media_honey:
     driver: local
     driver_opts:
       type: none
