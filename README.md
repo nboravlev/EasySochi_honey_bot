@@ -39,6 +39,27 @@ Telegram-бот для автоматизации продаж товаров (�
 
 ---
 
+## Инфраструктура данных (RAID5)
+
+Все критически важные данные проекта хранятся вне контейнеров на RAID5-массиве хоста для обеспечения отказоустойчивости и удобства бэкапа.
+
+### Пути на хосте и права доступа
+Перед запуском проекта необходимо создать директории и настроить владельцев:
+
+| Сервис | Путь на хосте | UID:GID | Описание |
+| :--- | :--- | :--- | :--- |
+| **db_rent** | `/data/easysochi/postgres_honey` | `999:999` | Данные PostgreSQL |
+| **bot_rent** | `/data/easysochi/media_honey` | `1000:1000` | Медиа-файлы бота |
+| **logs** | `/data/easysochi/logs_honey` | `1000:1000` | Логи бота для вьюера |
+
+### Команды для подготовки окружения
+```bash
+sudo mkdir -p /data/easysochi/{postgres_honey,media_honey,logs_honey}
+sudo chown -R 999:999 /data/easysochi/postgres_honey
+sudo chown -R 1000:1000 /data/easysochi/media_honey /data/easysochi/logs_honey
+sudo chmod -R 750 /data/easysochi/
+```
+
 ## Лицензия
 Этот проект распространяется под лицензией MIT – подробности см. в файле [LICENSE](./LICENSE).
 

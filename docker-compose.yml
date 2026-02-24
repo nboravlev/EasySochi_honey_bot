@@ -15,12 +15,14 @@ services:
 
   bot_honey:
     build: ./bot
+    user: "1000:1000"
     container_name: tg_bot_honey
     restart: unless-stopped
     env_file: .env
     volumes:
       - ./bot:/bot
-      - bot_logs:/app/logs
+      - bot_logs_honey:/app/logs
+      - bot_media_honey:/app/media
     depends_on:
       db_honey:
         condition: service_healthy
@@ -29,6 +31,7 @@ services:
 
   log-viewer_honey:
     build: ./log_viewer
+    user: "1000:1000"
     container_name: log_viewer_honey
     restart: unless-stopped
     env_file: .env
@@ -38,7 +41,7 @@ services:
       # Явно передаем порт внутрь, чтобы python-скрипт его видел
       - LOG_VIEWER_PORT=${LOG_VIEWER_PORT}
     volumes:
-      - bot_logs:/app/logs:ro
+      - bot_logs_honey:/app/logs:ro
     depends_on:
       - bot_honey
     networks:
@@ -51,7 +54,18 @@ volumes:
       type: none
       o: bind
       device: /data/easysochi/postgres_honey
-  bot_logs:
+  media_honey:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/easysochi/media_honey
+  bot_logs_honey:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/easysochi/logs_honey
 
 networks:
   tg_app_net_honey:
