@@ -34,3 +34,4 @@ postgres_data_*/
 # Byte-compiled / temporary
 *.swp
 *.swo
+docs/
