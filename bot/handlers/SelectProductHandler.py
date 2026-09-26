@@ -1,4 +1,19 @@
-from handlers.SelectProductConversation import *
+from telegram.ext import CallbackQueryHandler, CommandHandler, ConversationHandler, MessageHandler, filters
+
+from handlers.SelectProductConversation import (
+    CUSTOMER_COMMENT,
+    PRODUCT_TYPES_SELECTION,
+    SELECT_QUANTITY,
+    SELECT_SIZE,
+    cancel,
+    customer_comment_handler,
+    handle_product_type_selection,
+    handle_size_selection,
+    handle_update_quantity,
+    proceed_new_order,
+    save_customer_comment,
+    start_select_product,
+)
 
 select_product_conv = ConversationHandler(
     entry_points=[CallbackQueryHandler(start_select_product, pattern="^honey_buy$"),

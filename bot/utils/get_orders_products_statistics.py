@@ -1,26 +1,12 @@
-from sqlalchemy import select, func, and_
-from sqlalchemy.orm import selectinload
-from datetime import datetime, date
+from sqlalchemy import select, func
 from decimal import Decimal
 from db.models import Order, Product, ProductSize, Size, Session, User
 from db.db_async import get_async_session
 from utils.escape import safe_html
 
-from utils.logging_config import (
-    structured_logger, 
-    log_db_select, 
-    log_db_insert, 
-    log_db_update,
-    log_db_delete,
-    LoggingContext,
-    monitor_performance
-)
 
-import os
+from utils.access import is_owner
 
-OWNER_ID = os.getenv("OWNER_ID")
-if not (OWNER_ID):
-    raise RuntimeError("Owner chat id did not set in environment variables")
 
 ORDER_STATUS_CREATED = 1
 ORDER_STATUS_CUSTOMER_INFORMED = 2
@@ -34,13 +20,12 @@ ORDER_STATUS_DRAFT = 8
 DEGUSTATION_ROLE = 3
 
 
-@log_db_select(log_slow_only=True, slow_threshold=0.5)
 async def get_manager_stats_message(user_tg_id: int) -> str:
     """
     Формирует сообщение со статистикой продаж и заказов для менеджера или админа.
     """
     async with get_async_session() as session:
-        is_admin = str(user_tg_id) == str(OWNER_ID)
+        is_admin = is_owner(user_tg_id)
 
         # ===== 1. Продажи мёда по сортам =====
         stmt = (
@@ -121,7 +106,7 @@ async def get_manager_stats_message(user_tg_id: int) -> str:
         result = await session.execute(
             select(func.count(Session.tg_user_id)).where(
                 Session.role_id == DEGUSTATION_ROLE,
-                Session.sent_message == False
+                Session.sent_message.is_(False)
             )
         )
         user_count2test = result.scalar_one() or 0 # извлекаем число
@@ -129,7 +114,7 @@ async def get_manager_stats_message(user_tg_id: int) -> str:
         #=======всего пользователей =======
         result = await session.execute(
             select(func.count(User.id)).where(
-                User.is_active == True
+                User.is_active.is_(True)
             )
         )
         user_count = result.scalar_one() or 0 # извлекаем число

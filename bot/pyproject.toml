@@ -1,0 +1,21 @@
+# Настройки инструментов. Зависимости — requirements.in / requirements-dev.in (lock через pip-compile).
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+# миграции — сгенерированный код, их не трогаем
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+# pyflakes (неиспользуемые импорты/переменные, неопределённые имена),
+# синтаксис/импорты pycodestyle и частые ошибки bugbear
+select = ["E4", "E7", "E9", "F", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = [
+    # per_message=False в диалогах с CallbackQueryHandler — осознанная настройка, не шум тестов
+    "ignore:If 'per_message=False':telegram.warnings.PTBUserWarning",
+]

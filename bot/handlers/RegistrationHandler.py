@@ -1,6 +1,17 @@
-# Fixed ConversationHandler configuration
 
-from handlers.RegistrationConversation import *
+from telegram.ext import CallbackQueryHandler, CommandHandler, ConversationHandler, MessageHandler, filters
+
+from handlers.RegistrationConversation import (
+    ASK_PHONE,
+    MAIN_MENU,
+    NAME_REQUEST,
+    cancel,
+    handle_name_request,
+    handle_phone_registration,
+    handle_show_map,
+    route_after_login,
+    start,
+)
 
 registration_conversation = ConversationHandler(
     entry_points=[

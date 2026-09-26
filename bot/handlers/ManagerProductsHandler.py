@@ -1,4 +1,18 @@
-from handlers.ManagerProductsConversation import *
+from telegram.ext import CallbackQueryHandler, CommandHandler, ConversationHandler, MessageHandler, filters
+
+from handlers.ManagerProductsConversation import (
+    EDIT_PRICE_PROMPT,
+    EDIT_PRICE_WAIT_INPUT,
+    VIEW_PRODUCTS,
+    cancel_delete_product,
+    confirm_delete_product,
+    delete_product_confirmed,
+    end_and_go,
+    handle_edit_price_start,
+    handle_manager_products,
+    handle_new_price_input,
+    handle_product_upgrade,
+)
 
 manager_products = ConversationHandler(
     entry_points=[

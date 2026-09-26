@@ -1,4 +1,3 @@
-import os
 
 from datetime import  datetime
 from telegram import (
@@ -6,7 +5,6 @@ from telegram import (
 )
 from telegram.ext import (
     ConversationHandler,
-    CallbackQueryHandler,
     ContextTypes,
 
 )
@@ -19,10 +17,9 @@ from utils.message_tricks import  cleanup_messages
 
 from utils.access import staff_only
 from utils.constants import OrderStatus
+from config import get_settings
 
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-if not (ADMIN_CHAT_ID):
-    raise RuntimeError("Admin chat id did not set in environment variables")
+ADMIN_CHAT_ID = get_settings().admin_chat_id
 
 
 ORDER_STATUS_RECEIVED = OrderStatus.RECEIVED

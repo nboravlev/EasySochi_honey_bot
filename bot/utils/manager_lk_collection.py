@@ -1,32 +1,18 @@
 from db.models import Order, Product, ProductSize, Size, Image
 from datetime import timedelta
 from telegram import (
-    Update,
     InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    InputMediaPhoto
+    InlineKeyboardMarkup
 )
 from db.db_async import get_async_session
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from utils.logging_config import (
-    structured_logger, 
-    log_db_select, 
-    log_db_insert, 
-    log_db_update,
-    log_db_delete,
-    LoggingContext,
-    monitor_performance
-)
 
 from utils.escape import safe_html
 
-import os
+from utils.access import is_owner
 
-OWNER_ID = os.getenv("OWNER_ID")
-if not (OWNER_ID):
-    raise RuntimeError("Owner chat id did not set in environment variables")
 
 
 ORDER_STATUS_CREATED = 1
@@ -107,7 +93,6 @@ def prepare_owner_orders_cards(current_order: Order, current_index: int, total: 
     
     return text, markup
 
-@log_db_select(log_slow_only=True, slow_threshold=0.5)
 async def fetch_seller_products(user_tg_id: int, is_admin: bool):
     """
     
@@ -154,7 +139,7 @@ async def get_manager_product_sizes_keyboard(product_id: int) -> tuple[list[dict
             .join(Size, Size.id == ProductSize.size_id)
             .where(
                 ProductSize.product_id == product_id,
-                ProductSize.is_active == True
+                ProductSize.is_active.is_(True)
             )
             .order_by(ProductSize.price.asc())
         )
@@ -163,7 +148,7 @@ async def get_manager_product_sizes_keyboard(product_id: int) -> tuple[list[dict
                 # Получаем первое активное фото
         image_result = await session.execute(
             select(Image.tg_file_id)
-            .where(Image.product_id == product_id, Image.is_active == True)
+            .where(Image.product_id == product_id, Image.is_active.is_(True))
             .order_by(Image.created_at.asc())
             .limit(1)
         )
@@ -185,7 +170,6 @@ async def get_manager_product_sizes_keyboard(product_id: int) -> tuple[list[dict
     return sizes, InlineKeyboardMarkup(keyboard), image_file_id
 
 
-@log_db_select(log_slow_only=True, slow_threshold=0.5)
 async def fetch_seller_orders(user_tg_id: int, is_admin: bool, status_filter: list = None):
     """
     Возвращает заказы продавца с возможностью фильтрации по статусу.
@@ -195,7 +179,7 @@ async def fetch_seller_orders(user_tg_id: int, is_admin: bool, status_filter: li
     :param status_filter: список статусов для фильтрации. Если None — возвращаем все.
     """
     async with get_async_session() as session:
-        is_admin = str(user_tg_id) == str(OWNER_ID)
+        is_admin = is_owner(user_tg_id)
         stmt = select(Order).options(
             selectinload(Order.product_size).selectinload(ProductSize.product),
             selectinload(Order.product_size).selectinload(ProductSize.sizes),

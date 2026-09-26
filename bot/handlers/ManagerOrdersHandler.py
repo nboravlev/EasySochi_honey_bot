@@ -1,4 +1,10 @@
-from handlers.ManagerOrdersConversation import *
+from telegram.ext import CallbackQueryHandler, CommandHandler, ConversationHandler
+
+from handlers.ManagerOrdersConversation import (
+    VIEW_ORDERS,
+    end_and_go,
+    handle_seller_orders,
+)
 
 manager_orders = ConversationHandler(
     entry_points=[CallbackQueryHandler(handle_seller_orders, pattern=r"^honey_orders_\d+$")],

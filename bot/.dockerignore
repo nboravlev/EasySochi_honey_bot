@@ -9,3 +9,10 @@ __pycache__/
 logs/
 venv/
 .venv/
+# тесты и инструменты разработки в образ не нужны
+tests/
+requirements-dev.*
+requirements.in
+pyproject.toml
+.pytest_cache/
+.ruff_cache/

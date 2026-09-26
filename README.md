@@ -33,7 +33,7 @@ Telegram-бот для автоматизации продаж товаров (�
 
 - **Bot**: Python 3.12 (python_telegram_bot/sqlalchemy)
 - **Database**: PostgreSQL 15 + PostGIS
-- **Logs**: FastAPI Log Viewer
+- **Logs**: JSON-логи + FastAPI Log Viewer
 - **Proxy**: Nginx Gateway (внешний)
 
 
@@ -48,8 +48,8 @@ Telegram-бот для автоматизации продаж товаров (�
 
 | Сервис | Путь на хосте | UID:GID | Описание |
 | :--- | :--- | :--- | :--- |
-| **db_rent** | `/data/easysochi/postgres_honey` | `999:999` | Данные PostgreSQL |
-| **bot_rent** | `/data/easysochi/media_honey` | `1000:1000` | Медиа-файлы бота |
+| **db_honey** | `/data/easysochi/postgres_honey` | `999:999` | Данные PostgreSQL |
+| **bot_honey** | `/data/easysochi/media_honey` | `1000:1000` | Медиа-файлы бота |
 | **logs** | `/data/easysochi/logs_honey` | `1000:1000` | Логи бота для вьюера |
 
 ### Команды для подготовки окружения
@@ -109,33 +109,54 @@ ssh -L 5335:127.0.0.1:5335 -L 8080:127.0.0.1:8080 user@server
 ## Структура проекта
 
 ```
-EasySochi_bot/
-├── README.md
+EasySochi_honey_bot/
+├── .github/workflows/ci.yml   # ruff, pytest, миграции на пустой PostGIS, сборка образов
 ├── bot
-│   ├── Dockerfile
-│   ├── alembic
-│   ├── alembic.ini
-│   ├── api
-│   ├── check_expired_orders.py
-│   ├── db
-│   ├── db_monitor.py
-│   ├── entrypoint.sh
-│   ├── handlers
-│   ├── main.py
-│   ├── requirements.txt
-│   ├── schemas
-│   ├── static
-│   └── utils
+│   ├── config.py              # все настройки из окружения (pydantic-settings)
+│   ├── main.py                # сборка приложения и регистрация хендлеров
+│   ├── db_monitor.py          # джоба проверки БД
+│   ├── alembic/               # миграции (async, через asyncpg)
+│   ├── db/                    # base.py (Base), db_async.py (движок, сессии), models/
+│   ├── handlers/              # сценарии бота: *Conversation.py — логика, *Handler.py — ConversationHandler
+│   ├── utils/                 # доступ, логирование, клавиатуры, валидация, константы
+│   ├── static/images/
+│   ├── tests/
+│   ├── requirements.in        # прямые зависимости → requirements.txt (lock)
+│   ├── requirements-dev.in    # ruff, pytest → requirements-dev.txt (lock)
+│   └── pyproject.toml         # настройки ruff и pytest
 ├── db
-│   └── tools
-├── docker-compose.yml
-├── log_viewer
-│   ├── Dockerfile
-│   ├── app
-│   ├── requirements.txt
-│   └── utils
-└── .env
+│   ├── init/init-pg.sql       # расширения при первой инициализации БД
+│   └── tools/
+├── log_viewer/
+└── docker-compose.yml
 ```
+
+## Разработка
+
+Все команды — из каталога `bot/`:
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+ruff check .
+pytest
+```
+
+Добавить или обновить зависимость: поправить `requirements.in` (или `requirements-dev.in`) и пересобрать lock:
+
+```bash
+pip-compile --strip-extras requirements.in
+```
+
+Новая миграция (нужна запущенная БД и переменные `POSTGRES_*`/`DB_HOST`):
+
+```bash
+alembic revision --autogenerate -m "описание"
+```
+
+Логи: `bot_structured.log` в `LOG_DIR` — JSON по строке на запись, ротация по 10 МБ × 5 файлов;
+предупреждения и ошибки дублируются в `docker logs`. В коде:
+`structured_logger.info("текст", action="order_created", order_id=..., context={...})` —
+`user_id`/`chat_id`/`update_id` текущего апдейта добавляются автоматически.
 
 ## Безопасность
 

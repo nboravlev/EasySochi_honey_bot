@@ -1,8 +1,7 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, text, DateTime, Boolean, BIGINT, UniqueConstraint
-from sqlalchemy.orm import relationship, validates
+from sqlalchemy import Column, Integer, String, text, DateTime, Boolean, BIGINT
+from sqlalchemy.orm import relationship
 from datetime import datetime
-from db.db import Base
-import re
+from db.base import Base
 
 class Source(Base):
     __tablename__ = "sources"

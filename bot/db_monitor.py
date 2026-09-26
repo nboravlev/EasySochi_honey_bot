@@ -1,19 +1,14 @@
-import os
 from sqlalchemy import text
-import asyncio
+
+from config import get_settings
 from db.db_async import get_async_session
 from utils.logging_config import structured_logger
 
 
-
-
-
-# Конфигурация
-
-CHAT_ID = int(os.getenv("DB_MONITOR_CHAT_ID", "-1002843679066"))  # канал или чат
-
 async def check_db(context):
+    """Каждые 30 минут шлёт в мониторинговый чат статус БД (намеренно всегда, как heartbeat)."""
     bot = context.bot
+    chat_id = get_settings().db_monitor_chat_id
 
     try:
         async with get_async_session() as session:
@@ -28,20 +23,17 @@ async def check_db(context):
             exception=e
         )
 
-
-    # ВСЕГДА отправляем статус, без проверки на изменение
     text_msg = (
         "🐝 <b>База данных honeybot доступна</b>"
         if status_ok
         else "❄️ <b>База данных honeybot недоступна!</b>"
     )
-    
+
     try:
-        await bot.send_message(chat_id=CHAT_ID, text=text_msg, parse_mode="HTML")
+        await bot.send_message(chat_id=chat_id, text=text_msg, parse_mode="HTML")
     except Exception as send_error:
         structured_logger.warning(
             "Failed to send DB status message",
             action="db_health_notify_failed",
-            context={"chat_id": CHAT_ID, "error": str(send_error)}
+            context={"chat_id": chat_id, "error": str(send_error)}
         )
-

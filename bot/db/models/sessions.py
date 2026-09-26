@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, BIGINT, Boolean, DateTime, ForeignKey, t
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from datetime import datetime
-from db.db import Base
+from db.base import Base
 
 class Session(Base):
     __tablename__ = "sessions"

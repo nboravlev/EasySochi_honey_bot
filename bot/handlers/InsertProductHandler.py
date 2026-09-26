@@ -1,4 +1,20 @@
-from handlers.InsertProductConversation import *
+from telegram.ext import CallbackQueryHandler, CommandHandler, ConversationHandler, MessageHandler, filters
+
+from handlers.InsertProductConversation import (
+    PRODUCT_DESCRIPTION,
+    PRODUCT_NAME,
+    PRODUCT_PHOTO,
+    PRODUCT_SIZE,
+    PRODUCT_TYPE,
+    cancel,
+    handle_description,
+    handle_object_name,
+    handle_object_size,
+    handle_object_type,
+    handle_photo,
+    handle_photos_done,
+    start_add_object,
+)
 
 insert_product_conv = ConversationHandler(
     entry_points=[

@@ -1,48 +1,30 @@
 from telegram import (
     Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     KeyboardButton
 )
 from telegram.ext import (
     ConversationHandler,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters
+    ContextTypes
 )
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from db.db_async import get_async_session
-from db.models import Order, Product, ProductSize, Size
+from db.models import Order, ProductSize, Size
 from utils.escape import safe_html
-from utils.message_tricks import add_message_to_cleanup, cleanup_messages
+from utils.message_tricks import cleanup_messages
 
-from handlers.ManagerOrdersConversation import handle_seller_orders
 
-from utils.logging_config import (
-    structured_logger, 
-    log_db_select, 
-    log_db_insert, 
-    log_db_update,
-    log_db_delete,
-    LoggingContext,
-    monitor_performance
-)
-
-import os 
-
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-if not (ADMIN_CHAT_ID):
-    raise RuntimeError("Admin chat id did not set in environment variables")
 
 from utils.access import staff_only
 from utils.constants import OrderStatus
+from config import get_settings
+
+ADMIN_CHAT_ID = get_settings().admin_chat_id
+
 
 DECLINE_REASON = 1
 MAX_REASON_LENGTH = 255  # orders.manager_comment VARCHAR(255)

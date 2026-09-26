@@ -1,47 +1,47 @@
-
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-import os
-
+import time
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-if not (DATABASE_URL):
-    raise RuntimeError("DATABASE_URL are not set in environment variables")
+from config import get_db_settings
+from utils.logging_config import structured_logger
 
-# Двигаем SQLAlchemy в async‑режим
+_db_settings = get_db_settings()
+
 engine = create_async_engine(
-    DATABASE_URL,
+    _db_settings.database_url,
     # SQL-лог с параметрами содержит персональные данные — только для локальной отладки
-    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+    echo=_db_settings.sql_echo,
     pool_pre_ping=True,
 )
 
-
-# factory для сессий
-async_session_maker = sessionmaker(
+async_session_maker = async_sessionmaker(
     engine,
-    class_=AsyncSession,
     expire_on_commit=False,  # объекты не станут «откреплёнными» сразу после commit
 )
-
-#async def get_async_session() -> AsyncSession:
-#    """
- #   Контекст‑менеджер для получения AsyncSession.
- #   Используйте в виде:
- #       async with get_async_session() as session:
-  #          ...
-  #  """
- #   async with async_session_maker() as session:
- #     yield session
 
 
 @asynccontextmanager
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
-       yield session
+        yield session
 
-# Базовый класс для моделей
-Base = declarative_base()
+
+# --- медленные запросы: текст запроса без параметров (в параметрах бывают персональные данные)
+@event.listens_for(engine.sync_engine, "before_cursor_execute")
+def _query_started(conn, cursor, statement, parameters, context, executemany):
+    conn.info.setdefault("query_start", []).append(time.perf_counter())
+
+
+@event.listens_for(engine.sync_engine, "after_cursor_execute")
+def _query_finished(conn, cursor, statement, parameters, context, executemany):
+    elapsed_ms = (time.perf_counter() - conn.info["query_start"].pop()) * 1000
+    if elapsed_ms >= _db_settings.slow_query_ms:
+        structured_logger.warning(
+            f"Slow query: {elapsed_ms:.0f} ms",
+            action="db_slow_query",
+            execution_time=round(elapsed_ms / 1000, 3),
+            context={"statement": " ".join(statement.split())[:500]},
+        )

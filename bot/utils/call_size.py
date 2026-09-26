@@ -1,29 +1,10 @@
-from sqlalchemy import select, func
+from sqlalchemy import select
 from db.models.sizes import Size
 from db.db_async import get_async_session
 from typing import Dict
-from utils.logging_config import structured_logger, LoggingContext
+from utils.logging_config import structured_logger
 
 SIZE_MAP: Dict[str, int] = {}  # ключи — нормализованные строки без 'кг', значения — id
-
-async def init_size_map():
-    """Заполнить SIZE_MAP всеми размерами из таблицы Size"""
-    global SIZE_MAP
-    async with get_async_session() as session:
-        result = await session.execute(select(Size))
-        sizes = result.scalars().all()
-        # Ключи — числа как строки, значения — id
-        SIZE_MAP = {str(s.name): s.id for s in sizes}
-        # Логируем, но показываем пользователю с единицей
-        for s in sizes:
-            structured_logger.info(
-                "Loaded size",
-                action="init_size_map",
-                context={
-                    "size_id": s.id,
-                    "display_name": f"{s.name}кг"
-                }
-            )
 
 async def get_size_id_async(size_display: str) -> int:
     """

@@ -1,48 +1,31 @@
 from telegram import (
     Update,
     InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
-    KeyboardButton
+    InlineKeyboardMarkup
 )
 from telegram.ext import (
     ConversationHandler,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    ContextTypes,
-    filters
+    ContextTypes
 )
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from db.db_async import get_async_session
-from db.models import Order, Product, ProductSize, Size
+from db.models import Order, ProductSize, Size
 from utils.escape import safe_html
-from utils.message_tricks import add_message_to_cleanup, cleanup_messages
+from utils.message_tricks import cleanup_messages
 
 from handlers.ManagerOrdersConversation import handle_seller_orders
 
-from utils.logging_config import (
-    structured_logger, 
-    log_db_select, 
-    log_db_insert, 
-    log_db_update,
-    log_db_delete,
-    LoggingContext,
-    monitor_performance
-)
-
-import os 
-
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-if not (ADMIN_CHAT_ID):
-    raise RuntimeError("Admin chat id did not set in environment variables")
+from utils.logging_config import structured_logger
 
 from utils.access import staff_only
 from utils.constants import OrderStatus, APIARY_ADDRESS
+from config import get_settings
+
+ADMIN_CHAT_ID = get_settings().admin_chat_id
+
 
 ORDER_STATUS_PROCESSING = OrderStatus.PROCESSING
 ORDER_STATUS_READY = OrderStatus.READY
@@ -102,8 +85,8 @@ async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             # «из списка» — только если кнопку нажали в личном кабинете, а не в админ-чате
             from_orders = context.user_data.get("from_orders_list") and query.message.chat.type == "private"
             keyboard_customer = [
-                [InlineKeyboardButton("🧭 Показать на карте", callback_data=f"show_map")],
-                [InlineKeyboardButton(str("Планирую получить:"), callback_data=f"noop")],
+                [InlineKeyboardButton("🧭 Показать на карте", callback_data="show_map")],
+                [InlineKeyboardButton(str("Планирую получить:"), callback_data="noop")],
                 [InlineKeyboardButton("🟢 сегодня", callback_data=f"pickup_today_{order.id}"),
                 InlineKeyboardButton("🟡 завтра", callback_data=f"pickup_tomorrow_{order.id}"),
                 InlineKeyboardButton("🔵 завтра+", callback_data=f"pickup_later_{order.id}")]
@@ -116,7 +99,7 @@ async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"{APIARY_ADDRESS}"
                 )
             reply_markup_customer = InlineKeyboardMarkup(keyboard_customer)
-            msg = await context.bot.send_message(
+            await context.bot.send_message(
                 chat_id=order.tg_user_id,
                 text=text_customer,
                 reply_markup=reply_markup_customer,

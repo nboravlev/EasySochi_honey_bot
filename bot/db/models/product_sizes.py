@@ -1,21 +1,16 @@
 from sqlalchemy import (
     Column,
     Integer,
-    String,
-    Text,
     Boolean,
     DateTime,
     ForeignKey,
     Numeric,
-    CheckConstraint,
-    text,
-    BIGINT
+    text
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
-from db.db import Base
+from db.base import Base
 
-from decimal import Decimal
 
 
 class ProductSize(Base):

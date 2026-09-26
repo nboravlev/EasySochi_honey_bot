@@ -3,14 +3,13 @@ from db.models import Product,ProductSize
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler
 from sqlalchemy import update as sa_update
 from telegram import Update
-from utils.logging_config import log_db_update, structured_logger
+from utils.logging_config import structured_logger
 from utils.access import manager_only, is_owner
 
 RESTART_TEXT = "🚫 Данные удалены. Начните сначала /honey_add"
 
 
 @manager_only
-@log_db_update
 async def redo_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     message = query.message

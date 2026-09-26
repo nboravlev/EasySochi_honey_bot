@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Numeric
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
-from db.db import Base
+from db.base import Base
 
 
 class DeliveryZone(Base):
