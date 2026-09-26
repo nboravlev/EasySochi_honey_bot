@@ -9,28 +9,38 @@ from telegram import (
     )
 from utils.message_tricks import add_message_to_cleanup, send_message
 from utils.logging_config import log_db_update, structured_logger, LoggingContext
+from utils.access import manager_only, is_owner
 
 
+@manager_only
 @log_db_update
 async def confirm_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     message = query.message
+    tg_user_id = update.effective_user.id
 
 
     try:
         product_id = int(query.data.split("_")[-1])
-        
+
         async with get_async_session() as session:
             result = await session.execute(select(Product).where(Product.id == product_id))
             product = result.scalar_one_or_none()
-            print(f"DEBUG_COMMIT: {product.name}")
+
+            # публикует только автор черновика (или владелец); удалённую карточку не воскрешаем
+            if (product is None or not product.is_active
+                    or (product.created_by != tg_user_id and not is_owner(tg_user_id))):
+                await query.answer("Карточка не найдена или недоступна.", show_alert=True)
+                return ConversationHandler.END
+            await query.answer()
 
             product.is_draft = False
             structured_logger.info(
                 "New product",
+                user_id=tg_user_id,
                 product_name=product.name,
-                action="New product created",
-                context={'tg_id': product.created_by}
+                action="product_published",
+                context={'tg_id': product.created_by, 'product_id': product.id}
             )
             await session.commit()
 
@@ -66,7 +76,6 @@ async def confirm_product_callback(update: Update, context: ContextTypes.DEFAULT
                 'error_type': type(e).__name__
             }
         )
-        print(e)
         await send_message(update, text = "не удалось сохранение. Попробуйте позже или обратитесь в поддержку."
         )
         return ConversationHandler.END

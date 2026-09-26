@@ -41,12 +41,10 @@ from utils.logging_config import (
     monitor_performance
 )
 
-import os
+from utils.access import is_manager
+from utils.constants import APIARY_ADDRESS, Role
 
-
-MANAGER_LIST = [
-    int(m.strip(" []")) for m in os.getenv("MANAGER_LIST", "").split(",") if m.strip(" []")
-]
+MAX_FIRSTNAME_LENGTH = 50  # users.firstname VARCHAR(50)
 
 MENU_URL = []
 WELCOME_PHOTO = "/bot/static/images/photo_paseka_1.jpg"
@@ -58,7 +56,7 @@ WELCOME_TEXT = ("Медовый чат-бот, чтобы выбрать и пр
                 "локальной краснополянской пасеки, "
                 "на которой кавказская пчела 🐝 производит настоящий горный мед!🍯\n\n"
                 "Чтобы убедиться в этом лично, посетите бесплатную дегустацию!\n\n"
-                "Пасека расположена по адресу Красная Поляна, ул.Плотинная, д.4")
+                f"Пасека расположена по адресу {APIARY_ADDRESS}")
 
 
 
@@ -82,7 +80,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
         try:
             tg_user = update.effective_user
-            print(f"DEBUG-initial-user: {tg_user}")
 
 
                        # Log user interaction details
@@ -98,10 +95,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 }
             )
             user_id = tg_user.id
-            print(user_id)
             # Check if user already exists
             user = await get_user_by_tg_id(user_id)
-            print(f"DEBUG_User:{user}")
             if user is None:
 
                 # New user - start registration
@@ -138,7 +133,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         'error_type': type(e).__name__
                     }
                 )
-                print(e)
                 await update.message.reply_text(
                     "Произошла ошибка. Попробуйте позже или обратитесь в поддержку."
                 )
@@ -219,17 +213,18 @@ async def handle_name_request(update: Update, context: ContextTypes.DEFAULT_TYPE
             original_input = first_name
             
             if not first_name or first_name.lower() == "использовать никнейм из тг":
-                tg_name = tg_user.first_name
-                if not tg_name == None:
+                tg_name = (tg_user.first_name or "").strip()
+                if not tg_name:
                     await update.message.reply_text("В вашем профиле не заполнено поле Имя, напишите, как к вам обращаться:",
                                                      reply_markup=ReplyKeyboardRemove())
                     return NAME_REQUEST
-                first_name = tg_name.strip()
+                first_name = tg_name
                 name_source = "telegram_profile"
             else:
-                first_name = safe_html(first_name)
                 name_source = "user_input"
 
+            # В БД храним исходный текст, экранируем при выводе в HTML
+            first_name = first_name[:MAX_FIRSTNAME_LENGTH]
             context.user_data["first_name"] = first_name
             
             structured_logger.info(
@@ -239,8 +234,7 @@ async def handle_name_request(update: Update, context: ContextTypes.DEFAULT_TYPE
                 context={
                     'name_source': name_source,
                     'name_length': len(first_name),
-                    'original_input': original_input[:50],  # Limit for privacy
-                    'sanitized_name': first_name[:50]
+                    'input_length': len(original_input),
                 }
             )
 
@@ -344,9 +338,9 @@ async def handle_phone_registration(update: Update, context: ContextTypes.DEFAUL
                 reply_markup=ReplyKeyboardRemove()
             )
             await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
-            # Show main menu
-            await route_after_login(update,context,user)
-            
+            # Show main menu. Возвращаем результат, иначе диалог застревает в ASK_PHONE
+            return await route_after_login(update,context,user)
+
         except Exception as e:
             structured_logger.error(
                 f"Error in handle_phone_registration: {str(e)}",
@@ -365,15 +359,21 @@ async def handle_phone_registration(update: Update, context: ContextTypes.DEFAUL
 async def route_after_login(update: Update, context: ContextTypes.DEFAULT_TYPE, user = None):
     """Роутинг после регистрации или входа с созданием сессии"""
     await cleanup_messages(context)
+    if update.callback_query:
+        try:
+            await update.callback_query.answer()
+        except Exception:
+            pass  # колбэк уже мог быть отвечен вызывающим хендлером
     if user is None:
         user_id = update.effective_user.id
         user = await get_user_by_tg_id(user_id)
+        if user is None:
+            await send_message(update, "Вы ещё не зарегистрированы. Нажмите /start")
+            return ConversationHandler.END
 
-    print(f"DEBUG: user_id = {user.tg_user_id}\nMANAGER_LIST = {MANAGER_LIST}")
     try:
-        if user.tg_user_id in MANAGER_LIST:
-            role_id = 4
-            session = await create_session(user.tg_user_id, role_id)
+        if is_manager(user.tg_user_id):
+            session = await create_session(user.tg_user_id, Role.MANAGER)
             context.user_data["session_id"] = session.id
             return await show_manager_menu(update, context, user)
         else:
@@ -382,9 +382,12 @@ async def route_after_login(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     except Exception as e:
         structured_logger.error(
-            f"Error in handle route_after_logging: {str(e)}"
+            f"Error in handle route_after_logging: {str(e)}",
+            user_id=user.tg_user_id,
+            action="route_after_login_error",
+            exception=e
         )
-        msg = await update.message.reply_text("Ошибка на развилке прав.")
+        msg = await send_message(update, "Ошибка на развилке прав.")
         await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
         return ConversationHandler.END
 
@@ -399,7 +402,7 @@ async def show_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         InlineKeyboardButton("📣 Приглашение ", callback_data="honey_invite")]
     ]
     msg = await send_message(update,
-        f"👋 Привет, {user.firstname}! Статистика по магазину:\n\n {stats_text}",
+        f"👋 Привет, {safe_html(user.firstname)}! Статистика по магазину:\n\n {stats_text}",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode = "HTML"
     )
@@ -420,7 +423,8 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
             InlineKeyboardButton("Дегустация 🍽", callback_data="honey_try")]            
         ]
             keyboard = InlineKeyboardMarkup(location_keyboard+action_keyboard)
-            msg = await update.message.reply_photo(
+            # effective_message: меню открывается и командой, и колбэком back_menu
+            msg = await update.effective_message.reply_photo(
                 photo=f,
                 caption=WELCOME_TEXT,
                 reply_markup=keyboard
@@ -443,7 +447,7 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
             action="customer_menu_error",
             exception=e
         )
-        await update.message.reply_text("Ошибка при отображении меню.")
+        await update.effective_message.reply_text("Ошибка при отображении меню.")
         return ConversationHandler.END
 
 
@@ -451,7 +455,6 @@ async def handle_show_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
     LAT = '43.672805'
     LON = '40.200094'
     query = update.callback_query
-    print("DEBUG: handle_show_map triggered")
     await query.answer()
 
     # Отправляем встроенную карту

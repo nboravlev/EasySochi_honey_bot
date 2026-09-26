@@ -25,7 +25,7 @@ class ProductSize(Base):
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey("public.products.id", ondelete="CASCADE"), nullable=False)
     size_id = Column(Integer, ForeignKey("public.sizes.id", ondelete="CASCADE"), nullable=False)
-    price = Column(Numeric(5,1), nullable=False)
+    price = Column(Numeric(10, 2), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))

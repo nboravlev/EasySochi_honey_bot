@@ -28,14 +28,10 @@ async def get_user_by_tg_id(tg_user_id: int):
 @log_db_select(log_slow_only=True, slow_threshold=0.5)
 async def get_user_by_tg_id(user_id: int):
     async with get_async_session() as session:
-        print("DEBUG-session-created")
         result = await session.execute(
             select(User).where(User.tg_user_id == user_id)
         )
-        print("DEBUG-query-executed")
-        user = result.scalar_one_or_none()
-        print(f"DEBUG-user-found: {user}")
-        return user
+        return result.scalar_one_or_none()
 
 
 @log_db_insert

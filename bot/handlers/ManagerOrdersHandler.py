@@ -9,6 +9,9 @@ manager_orders = ConversationHandler(
     },
     fallbacks=[
         CommandHandler("cancel", end_and_go)
-    ]
+    ],
+    # список открывается повторно из меню, пока диалог ещё в VIEW_ORDERS
+    allow_reentry=True,
+    conversation_timeout=1800
 
 )

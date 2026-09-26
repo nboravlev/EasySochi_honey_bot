@@ -48,7 +48,28 @@ from telegram.ext import (
     ApplicationBuilder,
     JobQueue
 )
-# Initialize comprehensive logging
+from utils.logging_config import setup_logging, structured_logger
+
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Все необработанные исключения хендлеров и джоб — в лог, а не в пустоту stderr."""
+    user_id = None
+    chat_id = None
+    update_kind = type(update).__name__ if update is not None else None
+    if isinstance(update, Update):
+        user_id = update.effective_user.id if update.effective_user else None
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        if update.callback_query:
+            update_kind = f"callback:{update.callback_query.data}"
+        elif update.message and update.message.text and update.message.text.startswith("/"):
+            update_kind = f"command:{update.message.text.split()[0]}"
+    structured_logger.error(
+        f"Unhandled error: {context.error!r}",
+        user_id=user_id,
+        action="unhandled_error",
+        exception=context.error,
+        context={"chat_id": chat_id, "update": update_kind},
+    )
 
 
 async def post_init(application: Application) -> None:
@@ -80,6 +101,12 @@ async def post_init(application: Application) -> None:
 
 
 def main():
+    setup_logging(
+        log_dir=os.getenv("LOG_DIR", "/app/logs"),
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        enable_console=True,
+    )
+
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN is not set in .env")
@@ -92,6 +119,8 @@ def main():
     .write_timeout(60)\
     .post_init(post_init)\
     .build()
+
+    app.add_error_handler(on_error)
 
     #глобальные обработчики
     app.add_handler(CommandHandler("info",info_command), group=0)

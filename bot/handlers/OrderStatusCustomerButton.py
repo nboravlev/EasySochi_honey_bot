@@ -41,15 +41,17 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 if not (ADMIN_CHAT_ID):
     raise RuntimeError("Admin chat id did not set in environment variables")
 
-ORDER_STATUS_PROCESSING = 3
-ORDER_STATUS_READY = 4
-ORDER_STATUS_CUSTOMER_NOTIFIED = 2
+from utils.constants import OrderStatus, BUSINESS_TZ
+
+ORDER_STATUS_PROCESSING = OrderStatus.PROCESSING
+ORDER_STATUS_READY = OrderStatus.READY
+ORDER_STATUS_CUSTOMER_NOTIFIED = OrderStatus.CUSTOMER_NOTIFIED
+SELLER_CONTACT = os.getenv("SELLER_CONTACT")
 
 async def customer_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await cleanup_messages(context)
     """Покупатель жмет на кнопку, когда заберет заказ"""
+    await cleanup_messages(context)
     query = update.callback_query
-    await query.answer()
 
     #await query.edit_message_reply_markup(reply_markup=None)
     try:
@@ -57,12 +59,14 @@ async def customer_button_handler(update: Update, context: ContextTypes.DEFAULT_
         _, processing_time_str,order_id_str = query.data.split("_")
         order_id = int(order_id_str)
 
+        # «сегодня» считаем по Москве, а не по времени контейнера (UTC)
+        today = datetime.now(BUSINESS_TZ)
         if processing_time_str == "today":
-            processing_date = datetime.now()
+            processing_date = today
         elif processing_time_str == "tomorrow":
-            processing_date = datetime.now() + timedelta(days=1)
+            processing_date = today + timedelta(days=1)
         else:  # later
-            processing_date = datetime.now() + timedelta(days=2)
+            processing_date = today + timedelta(days=2)
 
         async with get_async_session() as session:
             result = await session.execute(
@@ -79,12 +83,18 @@ async def customer_button_handler(update: Update, context: ContextTypes.DEFAULT_
             )
             order = result.scalar_one_or_none()
             
-            if not order:
-                await query.message.reply_text("❌ Бронирование не найдено.")
+            # кнопку может нажать только покупатель и только один раз, пока заказ в статусе READY
+            if not order or order.tg_user_id != update.effective_user.id:
+                await query.answer("Заказ не найден.", show_alert=True)
                 return ConversationHandler.END
-            
+            if order.status_id != ORDER_STATUS_READY:
+                await query.answer("Продавец уже знает о вашем визите 👍", show_alert=True)
+                return ConversationHandler.END
+            await query.answer()
 
             # updates
+            lag = datetime.utcnow() - order.updated_at
+            lag_minutes = int(lag.total_seconds() // 60)
             order.status_id = ORDER_STATUS_CUSTOMER_NOTIFIED
             order.updated_at = datetime.utcnow()
             order.session.last_action = {
@@ -92,43 +102,43 @@ async def customer_button_handler(update: Update, context: ContextTypes.DEFAULT_
                 "expected_recieving": processing_date.isoformat()
             }
             await session.flush()
-            lag = datetime.utcnow() - order.updated_at
-            lag_minutes = int(lag.total_seconds() // 60)
             structured_logger.info(
                 "Customer_accepted_readiness",
                 user_id=order.tg_user_id,
                 order_id=order.id,
+                action="order_pickup_planned",
                 context={"Customer_acted_in":lag_minutes}
             )
 
             manager_text = (
                 f"🔔 Заказ #{order.id}🔔\n\n"
-                f"🍯: <b>{order.product_size.product.name}({order.product_size.sizes.name}кг)</b>\n"
+                f"🍯: <b>{safe_html(order.product_size.product.name)}({order.product_size.sizes.name}кг)</b>\n"
                 f"🔢 Количество: {order.product_count}\n"
                 f"💰 Стоимость: {order.total_price} ₽\n"
                 f"Покупатель подтвердил, что придет за медом:\n"
                 f"<b>{processing_date.strftime('%d.%m.%Y')}</b> (ориентировочно)\n"
-                f"👨: {order.user.firstname or order.user.username}\n"
-                f"☎️: {order.user.phone_number or 'не указан'}"
+                f"👨: {safe_html(order.user.firstname or order.user.username)}\n"
+                f"☎️: {safe_html(order.user.phone_number) or 'не указан'}"
             )
             new_keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("Покупатель получил заказ", callback_data=f"order_complit_{order.id}")]
             ])
 
-            msg_ = await context.bot.send_message(
+            # сообщение в админ-чат не кладём в очистку покупателя:
+            # иначе его /start удалял кнопку «Покупатель получил заказ» у продавца
+            await context.bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
                 text=manager_text,
                 reply_markup=new_keyboard,
                 parse_mode='HTML'
             )
-            await add_message_to_cleanup(context,msg_.chat.id,msg_.message_id)
 
+            seller_phone = (order.manager.phone_number if order.manager else None) or SELLER_CONTACT
             customer_message = (
                 "Продавец проинформирован,\n"
                 "что примерная дата получения заказа:\n"
                 f"<b>{processing_date.strftime('%d.%m.%Y')}</b>\n"
-                "Номер телефона для связи\n"
-                f"☎️: {order.manager.phone_number}"
+                + (f"Номер телефона для связи\n☎️: {safe_html(seller_phone)}" if seller_phone else "")
             )
 
             # уведомляем клиента
@@ -142,8 +152,13 @@ async def customer_button_handler(update: Update, context: ContextTypes.DEFAULT_
             await session.commit()
 
     except Exception as e:
-        structured_logger.error("Ошибка при подтверждении готовности заказа",exception=e)
-        await query.message.reply_text("❌ Ошибка: неверный ID заказа")
+        structured_logger.error(
+            "Ошибка при подтверждении готовности заказа",
+            user_id=update.effective_user.id,
+            action="order_pickup_error",
+            exception=e
+        )
+        await query.message.reply_text("❌ Не удалось передать продавцу дату. Попробуйте ещё раз или напишите в /help")
         
     
     return ConversationHandler.END

@@ -4,6 +4,7 @@ from datetime import datetime, date
 from decimal import Decimal
 from db.models import Order, Product, ProductSize, Size, Session, User
 from db.db_async import get_async_session
+from utils.escape import safe_html
 
 from utils.logging_config import (
     structured_logger, 
@@ -140,7 +141,7 @@ async def get_manager_stats_message(user_tg_id: int) -> str:
     total_kg = 0
     total_sum = 0
     for name, kg, summ in product_stats:
-        honey_text += f"{name}: {kg or 0:.1f}кг | {summ or 0:.0f}₽\n"
+        honey_text += f"{safe_html(name)}: {kg or 0:.1f}кг | {summ or 0:.0f}₽\n"
         total_kg += kg or 0
         total_sum += summ or 0
     honey_text += f"\n<b>Итого:</b> {total_kg:.1f} кг | {total_sum:.0f}₽\n\n"

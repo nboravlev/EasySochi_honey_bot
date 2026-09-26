@@ -20,6 +20,8 @@ from utils.logging_config import (
     monitor_performance
 )
 
+from utils.escape import safe_html
+
 import os
 
 OWNER_ID = os.getenv("OWNER_ID")
@@ -43,14 +45,14 @@ def prepare_owner_orders_cards(current_order: Order, current_index: int, total: 
 
             # Формируем текст сообщения
     text = (
-        f"‼️ Cтатус <b>{current_order.status.name}</b> ‼️\n\n"
+        f"‼️ Cтатус <b>{safe_html(current_order.status.name)}</b> ‼️\n\n"
         f"Заказ №{current_order.id}\n"
-        f"{current_order.product_size.product.name} ({current_order.product_size.sizes.name} x {current_order.product_count})\n"
+        f"{safe_html(current_order.product_size.product.name)} ({current_order.product_size.sizes.name} x {current_order.product_count})\n"
         f"⏰ Создан: {created_local.strftime('%H:%M %d.%m.%Y')}\n"
         f"💰 Стоимость: {current_order.total_price} ₽\n"
-        f"💬 Комментарий клиента: {current_order.customer_comment or '—'}\n"
-        f"👨: {current_order.user.firstname or current_order.user.username}\n"
-        f"☎️ Номер: {current_order.user.phone_number or 'не указан'}\n\n"
+        f"💬 Комментарий клиента: {safe_html(current_order.customer_comment) or '—'}\n"
+        f"👨: {safe_html(current_order.user.firstname or current_order.user.username)}\n"
+        f"☎️ Номер: {safe_html(current_order.user.phone_number) or 'не указан'}\n\n"
         f"📍 {current_index+1} из {total}"
 
     )

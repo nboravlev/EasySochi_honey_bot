@@ -8,7 +8,7 @@ class Package(Base):
     
     id = Column(Integer, primary_key=True)
     name = Column(String(50), nullable=False, unique=True)
-    price = Column(Numeric(4,1), nullable=False)
+    price = Column(Numeric(10, 2), nullable=False)
 
     # Bidirectional relationship
     # Связи

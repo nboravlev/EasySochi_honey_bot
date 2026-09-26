@@ -14,7 +14,9 @@ manager_products = ConversationHandler(
             ],
             EDIT_PRICE_PROMPT: [
                     CallbackQueryHandler(handle_edit_price_start, pattern="^edit_price_start$"),
-                    CallbackQueryHandler(handle_manager_products, pattern=r"^honey_get_\d+$")
+                    # кнопка «Вернуться назад» шлёт honey_get без суффикса
+                    CallbackQueryHandler(handle_manager_products, pattern="^honey_get$"),
+                    CallbackQueryHandler(handle_product_upgrade, pattern=r"^edit_sizeprice_\d+$")
                 ],
             EDIT_PRICE_WAIT_INPUT: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, handle_new_price_input)
@@ -22,6 +24,9 @@ manager_products = ConversationHandler(
     },
     fallbacks=[
         CommandHandler("cancel", end_and_go)
-    ]
+    ],
+    # без reentry/таймаута менеджер, не завершивший правку цены, застревал в состоянии
+    allow_reentry=True,
+    conversation_timeout=1800
 
 )

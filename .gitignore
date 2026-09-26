@@ -30,6 +30,8 @@ postgres_data_*/
 *.bak
 *.backup
 *.sql
+# init-скрипт БД нужен для сборки образа
+!db/init/*.sql
 
 # Byte-compiled / temporary
 *.swp

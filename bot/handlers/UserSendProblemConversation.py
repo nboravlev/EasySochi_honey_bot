@@ -5,6 +5,7 @@ from telegram.ext import (
 )
 import os
 
+from utils.escape import safe_html
 
 
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
@@ -35,23 +36,25 @@ async def process_problem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=ADMIN_CHAT_ID,
         text=admin_message,
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=keyboard
     )
 
     await update.message.reply_text("✅ Сообщение передано администратору. Спасибо!")
     context.user_data.pop("awaiting_problem", None)
-    raise ApplicationHandlerStop
+    # без state диалог оставался в SEND_PROBLEM навсегда
+    raise ApplicationHandlerStop(ConversationHandler.END)
 
 
 
 #вспомогательная функция
 def _make_admin_message(user, problem_text: str) -> tuple[str, InlineKeyboardMarkup]:
+    # HTML с экранированием: в Markdown символы _ * [ ` из имени или текста роняли отправку
     text = (
-        f"🚨 *Сообщение о проблеме*\n\n"
-        f"👤 Пользователь: [{user.first_name}](tg://user?id={user.id})\n"
-        f"🆔 TG ID: `{user.id}`\n\n"
-        f"📝 Проблема:\n{problem_text}"
+        f"🚨 <b>Сообщение о проблеме</b>\n\n"
+        f"👤 Пользователь: <a href=\"tg://user?id={user.id}\">{safe_html(user.first_name) or 'без имени'}</a>\n"
+        f"🆔 TG ID: <code>{user.id}</code>\n\n"
+        f"📝 Проблема:\n{safe_html(problem_text)}"
     )
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("💬 Ответить", callback_data=f"reply_{user.id}")]

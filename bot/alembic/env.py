@@ -3,6 +3,7 @@ from logging.config import fileConfig
 from pathlib import Path
 
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.engine import make_url
 
 from alembic import context
 
@@ -17,8 +18,9 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("Postgres credentials are not set in environment variables")
 
-DATABASE_URL = DATABASE_URL
-# Загрузка .env
+# entrypoint.sh собирает async-URL (asyncpg) с правильным портом внутри сети,
+# а env.py работает синхронно — меняем только драйвер
+DATABASE_URL = make_url(DATABASE_URL).set(drivername="postgresql+psycopg2").render_as_string(hide_password=False)
 
 
 def include_object(object, name, type_, reflected, compare_to):
@@ -31,7 +33,7 @@ def include_object(object, name, type_, reflected, compare_to):
 config = context.config
 config.set_main_option(
     "sqlalchemy.url",
-     DATABASE_URL
+     DATABASE_URL.replace("%", "%%")  # configparser: «%» в пароле иначе ломает интерполяцию
      )
 
 # Логгинг

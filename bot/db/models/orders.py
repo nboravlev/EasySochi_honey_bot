@@ -17,7 +17,7 @@ from datetime import datetime
 class Order(Base):
     __tablename__ = "orders"
     __table_args__ = (
-        CheckConstraint("drink_count > 0", name="check_drink_count_positive"),
+        CheckConstraint("product_count > 0", name="check_product_count_positive"),
         CheckConstraint("total_price >= 0", name="check_total_price_non_negative"),
         {"schema": "public"}
     )
@@ -35,7 +35,7 @@ class Order(Base):
     status_id = Column(Integer, ForeignKey("public.order_statuses.id", ondelete="CASCADE"), nullable=False)    
     product_count = Column(Integer, nullable=False)    
     # total_price может быть вычислена на уровне приложения, но сохраняется в БД
-    total_price = Column(Numeric(5,1), nullable=False)    
+    total_price = Column(Numeric(10, 2), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     customer_comment = Column(String(255), nullable=True)
@@ -62,5 +62,5 @@ class Order(Base):
 
 
     def __repr__(self):
-        return f"<Order(id={self.id}, name={self.drinks.name}, user={self.tg_user_id},status ={self.status_id})>"
+        return f"<Order(id={self.id}, product_size_id={self.product_size_id}, user={self.tg_user_id}, status={self.status_id})>"
 

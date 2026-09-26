@@ -15,6 +15,8 @@ from datetime import datetime
 from utils.message_tricks import add_message_to_cleanup, cleanup_messages,send_message
 from utils.keyboard_builder import get_product_sizes_keyboard, build_order_keyboard
 from utils.user_session_lastorder import get_actual_session_by_tg_id
+from utils.escape import safe_html
+from utils.constants import OrderStatus, Role, MAX_PRODUCT_COUNT, MAX_COMMENT_LENGTH
 from datetime import timedelta
 
 import os
@@ -34,14 +36,35 @@ if not (ADMIN_CHAT_ID):
 
 
 
-ORDER_STATUS_CREATED = 1
-ORDER_STATUS_CUSTOMER_INFORMED = 2
-ORDER_STATUS_PROCESSING = 3
-ORDER_STATUS_READY = 4
-ORDER_STATUS_RECEIVED = 5
-ORDER_STATUS_DECLINED = 6
-ORDER_STATUS_EXPIRED = 7
-ORDER_STATUS_DRAFT = 8
+ORDER_DRAFT_OPTIONS = (
+    selectinload(Order.product_size).selectinload(ProductSize.product),
+    selectinload(Order.product_size).selectinload(ProductSize.sizes).selectinload(Size.package),
+)
+
+
+def build_order_caption(order: Order) -> str:
+    """Текст карточки черновика заказа (HTML, пользовательские поля экранированы)."""
+    product_size = order.product_size
+    return (
+        f"<b>{safe_html(product_size.product.name)}</b>\n"
+        f"🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝\n"
+        f"Цена ({product_size.sizes.name}кг) – {int(product_size.price)}₽\n"
+        f"Количество: {order.product_count}\n"
+        f"Тара: {safe_html(product_size.sizes.package.name)}\n"
+        f"Комментарий: {safe_html(order.customer_comment) or '-'}"
+    )
+
+
+async def load_customer_draft(session, order_id: int, tg_user_id: int, *options):
+    """Возвращает черновик заказа покупателя или None, если заказ чужой или уже оформлен."""
+    result = await session.execute(
+        select(Order).options(*ORDER_DRAFT_OPTIONS, *options).where(Order.id == order_id)
+    )
+    order = result.scalar_one_or_none()
+    if order is None or order.tg_user_id != tg_user_id or order.status_id != OrderStatus.DRAFT:
+        return None
+    return order
+
 
 
 async def start_select_product(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -117,7 +140,7 @@ async def handle_product_type_selection(update: Update, context: ContextTypes.DE
     type_name = product_type.name if product_type else "Неизвестная категория"
 
     edited_msg = await query.edit_message_text(
-        f"Отличный выбор! Ищем мёд сорта <b>{type_name}</b>:",
+        f"Отличный выбор! Ищем мёд сорта <b>{safe_html(type_name)}</b>:",
         parse_mode="HTML"
     )
     context.user_data["last_menu_message_id"] = edited_msg.message_id
@@ -147,7 +170,7 @@ async def show_filtered_products(update: Update, context: ContextTypes.DEFAULT_T
         # Получаем размеры и клавиатуру
         sizes, keyboard_markup, image_file_id = await get_product_sizes_keyboard(product.id)
 
-        caption = f"<b>{product.name}</b>\n{product.description or 'Без описания'}"
+        caption = f"<b>{safe_html(product.name)}</b>\n{safe_html(product.description) or 'Без описания'}"
 
         if image_file_id:
             sent = await update.effective_message.reply_photo(
@@ -172,7 +195,6 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
 
     data = query.data if query else None
-    print(f"DEBUG_размер_имеем_{data}")
         # Парсим индекс из callback_data
     if data:
         try:
@@ -186,7 +208,7 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
         async with get_async_session() as session:
             try:
-                new_session = Session(tg_user_id=tg_user_id, role_id = 2,last_action={"event": "order_started"})
+                new_session = Session(tg_user_id=tg_user_id, role_id=Role.BUYER, last_action={"event": "order_started"})
                 session.add(new_session)
                 await session.flush()  # получаем id новой сессии
                 session_id = new_session.id
@@ -218,13 +240,20 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
                     )
                     .where(ProductSize.id == product_size_id)
                 )
-                product_size = result.scalar_one()
+                product_size = result.scalar_one_or_none()
+
+                # кнопки размера остаются на старых карточках — товар мог быть снят с продажи
+                if (product_size is None or not product_size.is_active
+                        or not product_size.product.is_active or product_size.product.is_draft):
+                    await session.rollback()
+                    await query.message.reply_text("❌ Этот товар больше не продаётся. Выберите другой: /honey_buy")
+                    return ConversationHandler.END
 
                 # создаём заказ (draft)
                 order = Order(
                     tg_user_id=tg_user_id,
-                    product_size_id=product_size.id,
-                    status_id= ORDER_STATUS_DRAFT,
+                    product_size=product_size,
+                    status_id=OrderStatus.DRAFT,
                     product_count=1,
                     total_price=product_size.price,
                     session_id = session_id if session_id else 1
@@ -241,12 +270,7 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
                 keyboard = await build_order_keyboard(order, order.total_price)
 
-                caption = f"<b>{product_size.product.name}</b>\n" \
-                        f"🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝\n" \
-                        f"Цена ({product_size.sizes.name}кг) – {int(product_size.price)}₽\n" \
-                        f"Количество: 1\n" \
-                        f"Тара: {product_size.sizes.package.name}\n"\
-                        f"Комментарий: -"
+                caption = build_order_caption(order)
 
                 msg = await update.callback_query.message.reply_text(
                     caption, reply_markup=keyboard, parse_mode="HTML"
@@ -270,7 +294,7 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
                 except Exception as e:
-                    print(f"Не удалось удалить сообщение {msg_id}: {e}")
+                    structured_logger.debug(f"Не удалось удалить сообщение {msg_id}: {e}", user_id=tg_user_id)
             # очищаем список
             context.user_data["product_messages"] = []
 
@@ -279,66 +303,63 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=last_menu_msg_id)
                 except Exception as e:
-                    print(f"Не удалось удалить сообщение {last_menu_msg_id}: {e}")
+                    structured_logger.debug(f"Не удалось удалить сообщение {last_menu_msg_id}: {e}", user_id=tg_user_id)
             # очищаем список
             context.user_data["last_menu_message_id"] = None
             return SELECT_QUANTITY
-        
+
 async def handle_update_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
-    print(f"DEBUG_quantity_data: {query.data.split("_")}")
+    tg_user_id = update.effective_user.id
     try:
         _,_, action, order_id_str = query.data.split("_")
         order_id = int(order_id_str)
     except ValueError:
+        await query.answer()
         await query.message.reply_text("Ошибка при изменении количества.")
         return SELECT_QUANTITY
-    
+
 
     async with get_async_session() as session:
 
-        result = await session.execute(
-            select(Order)
-            .options(
-                selectinload(Order.product_size).selectinload(ProductSize.product),  
-                selectinload(Order.product_size).selectinload(ProductSize.sizes).selectinload(Size.package),
-                selectinload(Order.session)
-            )
-            .where(Order.id == order_id)
-        )
-        order = result.scalar_one_or_none()
+        order = await load_customer_draft(session, order_id, tg_user_id)
 
         if not order:
-            await query.message.edit_text("Заказ не найден. Начните сначала.")
+            # заказ чужой или уже оформлен — старая карточка не должна его менять
+            await query.answer("Этот заказ уже оформлен или недоступен.", show_alert=True)
+            try:
+                await query.edit_message_reply_markup(reply_markup=None)
+            except Exception:
+                pass
             return ConversationHandler.END
 
 
-        # изменение, не допускать меньше 1
+        # изменение, не допускать меньше 1 и больше MAX_PRODUCT_COUNT
+        if action == "+" and order.product_count >= MAX_PRODUCT_COUNT:
+            await query.answer(
+                f"Не больше {MAX_PRODUCT_COUNT} шт. в одном заказе. "
+                "Для крупного заказа напишите продавцу через /help.",
+                show_alert=True
+            )
+            return SELECT_QUANTITY
         if action == "+":
             order.product_count += 1
         elif action == "-" and order.product_count > 1:
             order.product_count -= 1
         else:
             # если попытка уменьшить ниже 1 — просто игнорируем
-            structured_logger.debug("Attempt to decrease below 1 ignored")
+            await query.answer()
+            return SELECT_QUANTITY
+        await query.answer()
 
-           
-        # пересчёт цены: напиток + добавки
-
-        order.total_price = order.product_size.price * order.product_count 
+        order.total_price = order.product_size.price * order.product_count
         await session.flush()
 
         # пересобираем клавиатуру
 
         keyboard = await build_order_keyboard(order, order.total_price)
 
-        caption = f"<b>{order.product_size.product.name}</b>\n" \
-                f"🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝\n" \
-                f"Цена ({order.product_size.sizes.name}кг) – {int(order.product_size.price)}₽\n" \
-                f"Количество: {order.product_count}\n" \
-                f"Тара: {order.product_size.sizes.package.name}\n" \
-                f"Комментарий: {order.customer_comment or '-'}"
+        caption = build_order_caption(order)
 
         msg = await query.message.edit_text(caption, reply_markup=keyboard, parse_mode="HTML")
         await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
@@ -355,7 +376,6 @@ async def customer_comment_handler(update: Update, context: ContextTypes.DEFAULT
     """Запрашиваем у пользователя комментарий к заказу"""
     query = update.callback_query
     await query.answer()
-    print(f"DEBUG_customer_commment: {query.data.split("_")}")
     try:
         _, _, order_id_str = query.data.split("_")  # customer_comment_<id>
         order_id = int(order_id_str)
@@ -366,7 +386,7 @@ async def customer_comment_handler(update: Update, context: ContextTypes.DEFAULT
     # Сохраняем order_id в user_data, чтобы поймать в следующем сообщении
     context.user_data["pending_comment_order_id"] = order_id
 
-    await query.message.reply_text("✍️ Введите комментарий к заказу:")
+    await query.message.reply_text(f"✍️ Введите комментарий к заказу (до {MAX_COMMENT_LENGTH} символов):")
     return CUSTOMER_COMMENT  # отдельное состояние
 
 async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -379,21 +399,20 @@ async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TY
         return SELECT_QUANTITY
 
     comment_text = update.message.text.strip()
+    if len(comment_text) > MAX_COMMENT_LENGTH:
+        await update.message.reply_text(
+            f"Комментарий слишком длинный ({len(comment_text)} символов). "
+            f"Сократите до {MAX_COMMENT_LENGTH} и отправьте ещё раз:"
+        )
+        return CUSTOMER_COMMENT
     await cleanup_messages(context)
     async with get_async_session() as session:
-        result = await session.execute(
-            select(Order)
-            .options(
-                selectinload(Order.product_size).selectinload(ProductSize.product),
-                selectinload(Order.product_size).selectinload(ProductSize.sizes).selectinload(Size.package),
-            )
-            .where(Order.id == order_id)
-        )
-        order = result.scalar_one_or_none()
+        order = await load_customer_draft(session, order_id, tg_user_id)
 
         if not order:
-            await update.message.reply_text("Заказ не найден.")
-            return SELECT_QUANTITY
+            context.user_data.pop("pending_comment_order_id", None)
+            await update.message.reply_text("Заказ уже оформлен или не найден.")
+            return ConversationHandler.END
 
         # сохраняем комментарий
         order.customer_comment = comment_text
@@ -403,21 +422,14 @@ async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TY
             "Customer added comment",
             user_id=tg_user_id,
             order_id=order.id,
-            comment=comment_text,
-            action="customer_comment"
+            action="customer_comment",
+            context={"comment_length": len(comment_text)}
         )
 
         # пересобираем клавиатуру заказа
         keyboard = await build_order_keyboard(order, order.total_price)
 
-        caption = (
-            f"<b>{order.product_size.product.name}</b>\n"
-            f"🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝👨‍🌾🍯🐝\n"
-            f"Цена ({order.product_size.sizes.name}кг) – {int(order.product_size.price)}₽\n"
-            f"Количество: {order.product_count}\n"
-            f"Тара: {order.product_size.sizes.package.name}\n"
-            f"Комментарий: {order.customer_comment or '-'}"
-        )
+        caption = build_order_caption(order)
 
     # находим последнее сообщение с карточкой заказа
     last_msg_id = context.user_data.get("last_order_message_id")
@@ -433,7 +445,7 @@ async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TY
                 parse_mode="HTML"
             )
         except Exception as e:
-            print(f"Не удалось обновить карточку заказа {last_msg_id}: {e}")
+            structured_logger.debug(f"Не удалось обновить карточку заказа {last_msg_id}: {e}", user_id=tg_user_id)
             # если не нашли старое сообщение — просто шлём новое
             msg = await update.message.reply_text(caption, reply_markup=keyboard, parse_mode="HTML")
             context.user_data["last_order_message_id"] = msg.message_id
@@ -450,39 +462,39 @@ async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TY
 async def proceed_new_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Вызывается при нажатии кнопки 'Оплатить'"""
     query = update.callback_query
-    await query.answer()
-    await query.edit_message_reply_markup(reply_markup=None)
+    tg_user_id = update.effective_user.id
 
     try:
         _, order_id_str = query.data.split("_")
         order_id = int(order_id_str)
         async with get_async_session() as session:
-                # Достаём заказ с деталями
-            result = await session.execute(
-                select(Order)
-                .options(
-                    selectinload(Order.product_size).selectinload(ProductSize.product),
-                    selectinload(Order.product_size).selectinload(ProductSize.sizes).selectinload(Size.package),
-                    selectinload(Order.user)
-                )
-                .where(Order.id == order_id)
-            )
-            order = result.scalars().first()
-            order.status_id = ORDER_STATUS_CREATED
+            # Достаём заказ с деталями; повторный клик по «Заказать» не должен создавать второй заказ
+            order = await load_customer_draft(session, order_id, tg_user_id, selectinload(Order.user))
+            if not order:
+                await query.answer("Этот заказ уже оформлен.", show_alert=True)
+                try:
+                    await query.edit_message_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
+                return ConversationHandler.END
+
+            await query.answer()
+            await query.edit_message_reply_markup(reply_markup=None)
+            order.status_id = OrderStatus.CREATED
 
             # Сообщение для менеджеров
             created_local = order.created_at + timedelta(hours=3)
-                
+
             manager_text = (
                 f"🔔 Новый заказ #{order.id}🔔\n\n"
-                f"🍯: <b>{order.product_size.product.name}</b>\n"
+                f"🍯: <b>{safe_html(order.product_size.product.name)}</b>\n"
                 f"🫙 Размер: {order.product_size.sizes.name}кг\n"
                 f"🔢 Количество: {order.product_count}\n"
                 f"💰 Стоимость: {order.total_price} ₽\n"
                 f"⏰ Создан: {created_local.strftime('%H:%M %d.%m.%Y')}\n"
-                f"💬 Комментарий клиента: {order.customer_comment or '—'}\n"
-                f"👨: {order.user.firstname or order.user.username}\n"
-                f"☎️ Номер: {order.user.phone_number or 'не указан'}"
+                f"💬 Комментарий клиента: {safe_html(order.customer_comment) or '—'}\n"
+                f"👨: {safe_html(order.user.firstname or order.user.username)}\n"
+                f"☎️ Номер: {safe_html(order.user.phone_number) or 'не указан'}"
             )
 
             # Кнопки
@@ -509,19 +521,21 @@ async def proceed_new_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             structured_logger.info(
                 "new order",
                 user_id = order.tg_user_id,
+                order_id = order.id,
+                action = "order_created",
                 context = {'item':order.product_size.product.name,
                            'size': order.product_size.sizes.name,
                            'qty': order.product_count,
                            'amount': order.total_price}
             )
-            session.commit()
 
     except Exception as e:
         structured_logger.error(
             f"Error in sending order nitification: {str(e)}",
-            user_id = ADMIN_CHAT_ID,
+            user_id = tg_user_id,
             action="Send new order notification",
-            exception=e
+            exception=e,
+            context={'admin_chat_id': ADMIN_CHAT_ID}
         )
         await send_message(update,text=("Ошибка при отправке уведомления продавцу."))
 

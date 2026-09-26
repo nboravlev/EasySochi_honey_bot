@@ -38,7 +38,13 @@ OWNER_ID = os.getenv("OWNER_ID")
 if not (OWNER_ID):
     raise RuntimeError("Owner chat id did not set in environment variables")
 
+from utils.access import manager_only, is_owner
+from utils.escape import safe_html
+from utils.validation import parse_price
+from utils.constants import MAX_PRICE
 
+
+@manager_only
 async def handle_manager_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = getattr(update, "callback_query", None)
     tg_user = update.effective_user
@@ -62,7 +68,8 @@ async def handle_manager_products(update: Update, context: ContextTypes.DEFAULT_
             # Получаем размеры и клавиатуру
             sizes, keyboard_markup, image_file_id = await get_manager_product_sizes_keyboard(product.id)
 
-            caption = f"<b>{product.name}</b> ||сорт: {product.product_type.name}\n{product.description or 'Без описания'}"
+            caption = (f"<b>{safe_html(product.name)}</b> ||сорт: {safe_html(product.product_type.name)}\n"
+                       f"{safe_html(product.description) or 'Без описания'}")
 
             if image_file_id:
                 sent = await update.effective_message.reply_photo(
@@ -112,15 +119,15 @@ async def handle_product_upgrade(update: Update, context: ContextTypes.DEFAULT_T
 
             if not productsize:
                 structured_logger.warning(
-                    f"Product {productsize.product.name}({productsize.sizes.name}) not found for upgrade.",
+                    f"Product size {productsize_id} not found for upgrade.",
                     user_id=tg_user_id,
                     action="productsize_upgrade_not_found",
-                    context={'productsize_id': productsize.id}
+                    context={'productsize_id': productsize_id}
                 )
-                await query.message.edit_text("❌ Товар не найден.")
+                await send_message(update, "❌ Товар не найден.")
                 return VIEW_PRODUCTS
 
-            if productsize.product.created_by != tg_user_id:
+            if productsize.product.created_by != tg_user_id and not is_owner(tg_user_id):
                 structured_logger.warning(
                     f"Unauthorized edit attempt by user {tg_user_id}",
                     user_id=tg_user_id,
@@ -174,29 +181,30 @@ async def handle_new_price_input(update: Update, context: ContextTypes.DEFAULT_T
     sizename = context.user_data.get("sizename")
 
     with LoggingContext("product_price_edit", user_id=tg_user_id, productsize_id=productsize_id):
-        try:
-            new_price = float(new_price_text)
-            if new_price <= 0:
-                raise ValueError("Price must be positive.")
-        except ValueError:
+        new_price = parse_price(new_price_text)
+        if new_price is None:
             structured_logger.warning(
                 "Invalid price input.",
                 user_id=tg_user_id,
                 action="invalid_price_input",
-                context={'input_value': new_price_text}
+                context={'input_value': new_price_text[:50]}
             )
-            await update.message.reply_text("❌ Введите корректное положительное число.")
+            await update.message.reply_text(f"❌ Введите цену числом от 1 до {MAX_PRICE} ₽.")
             return EDIT_PRICE_WAIT_INPUT
 
         async with get_async_session() as session:
             result = await session.execute(
-                select(ProductSize).where(ProductSize.id == productsize_id)
+                select(ProductSize).options(selectinload(ProductSize.product))
+                .where(ProductSize.id == productsize_id)
             )
             productsize = result.scalar_one_or_none()
 
             if not productsize:
                 await update.message.reply_text("⚠️ Объект не найден.")
                 return VIEW_PRODUCTS
+            if productsize.product.created_by != tg_user_id and not is_owner(tg_user_id):
+                await update.message.reply_text("🚫 У вас нет прав для редактирования этого товара.")
+                return ConversationHandler.END
 
             # Обновляем цену
             old_price = productsize.price
@@ -292,6 +300,17 @@ async def delete_product_confirmed(update: Update, context: ContextTypes.DEFAULT
 
             if not product:
                 await update.callback_query.message.reply_text("❌ Товар не найден.")
+                return VIEW_PRODUCTS
+
+            # снять с продажи можно только свой товар (владелец — любой)
+            if product.created_by != tg_user_id and not is_owner(tg_user_id):
+                structured_logger.warning(
+                    f"Unauthorized delete attempt by user {tg_user_id}",
+                    user_id=tg_user_id,
+                    action="unauthorized_product_delete_attempt",
+                    context={'product_id': product_id}
+                )
+                await update.callback_query.message.reply_text("🚫 У вас нет прав снимать этот товар с продажи.")
                 return VIEW_PRODUCTS
 
             # Собираем все активные заказы через вложенные циклы

@@ -32,6 +32,9 @@ from utils.escape import safe_html
 from utils.full_view_manager import render_card
 from utils.call_size import init_size_map, get_size_id_async
 from utils.preprocess_foto import preprocess_photo_crop_center
+from utils.access import manager_only
+from utils.constants import MAX_PRICE, MAX_PRODUCT_NAME_LENGTH
+from utils.validation import parse_price
 from utils.logging_config import (
     structured_logger, 
     log_db_select, 
@@ -54,10 +57,12 @@ from utils.logging_config import (
 ) = range(5)
 
 SIZES = ["0.5кг","1.0кг","1.5кг"]
+MAX_DESCRIPTION_LENGTH = 255
 
 
 # ====== START INSERT ======
 
+@manager_only
 async def start_add_object(update: Update, context: ContextTypes.DEFAULT_TYPE):
     #await cleanup_messages(context)
 
@@ -86,6 +91,11 @@ async def start_add_object(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_object_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = (update.message.text or "").strip() or "Просто мед"
+    if len(name) > MAX_PRODUCT_NAME_LENGTH:
+        await update.message.reply_text(
+            f"Название слишком длинное. Уложитесь в {MAX_PRODUCT_NAME_LENGTH} символов:"
+        )
+        return PRODUCT_NAME
     context.user_data["name"] = name
     with LoggingContext("handle_object_name", user_id=update.effective_user.id):
         try:
@@ -94,7 +104,7 @@ async def handle_object_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 keyboard = [[InlineKeyboardButton(t.name, callback_data=str(t.id))] for t in types]
                 reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                f"Название продукта: <b>{name}</b>\nВыберите сорт меда:",
+                f"Название продукта: <b>{safe_html(name)}</b>\nВыберите сорт меда:",
                 reply_markup=reply_markup,
                 parse_mode="HTML"
             )
@@ -155,12 +165,9 @@ async def handle_object_size(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if raw_text == "нет":
         context.user_data["current_size_index"] += 1
         return await ask_size(update, context)
-    try:
-        price = float(raw_text.replace(",", "."))
-        if price <= 0:
-            raise ValueError
-    except ValueError:
-        await update.message.reply_text("Введите корректную цену числом.")
+    price = parse_price(raw_text)
+    if price is None:
+        await update.message.reply_text(f"Введите цену числом от 1 до {MAX_PRICE:,} ₽ (или «Нет»).".replace(",", " "))
         return PRODUCT_SIZE
 
     context.user_data["sizes"].append({"size": size, "price": price})
@@ -171,7 +178,7 @@ async def handle_object_size(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_desc = (update.message.text or "").strip()
-    description = raw_desc[:255] if raw_desc.lower() not in ("", "пропустить описание") else "Просто хороший мед без специального описания. 👍"
+    description = raw_desc[:MAX_DESCRIPTION_LENGTH] if raw_desc.lower() not in ("", "пропустить описание") else "Просто хороший мед без специального описания. 👍"
     context.user_data["description"] = description
     context.user_data["photos"] = []
     await update.message.reply_text(

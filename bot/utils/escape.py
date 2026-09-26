@@ -1,7 +1,7 @@
 from html import escape as html_escape
 
-def safe_html(text: str | None) -> str:
+def safe_html(text) -> str:
     """Экранирует пользовательский ввод для безопасного использования в HTML сообщений Telegram."""
-    if not text:
+    if text is None or text == "":
         return ""
-    return html_escape(text)
+    return html_escape(str(text))
