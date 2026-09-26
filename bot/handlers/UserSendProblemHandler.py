@@ -9,4 +9,5 @@ problem_handler = ConversationHandler(
     },
     fallbacks=[CommandHandler("cancel",cancel_command)],
     per_user=True,  # Важно! Состояние ведётся раздельно для чатов
+    conversation_timeout=900,
 )

@@ -1,5 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from db.models.products import Product
+from utils.escape import safe_html
 
 def render_card(product: Product) -> tuple[str, list[InputMediaPhoto] | None, InlineKeyboardMarkup]:
     # Формируем текст с размерами и ценами
@@ -14,9 +15,9 @@ def render_card(product: Product) -> tuple[str, list[InputMediaPhoto] | None, In
 
     # Основной текст карточки
     text = (
-        f"<b>{product.name}</b>\n\n"
-        f"💬 {product.description or 'Без описания'}\n\n"
-        f"🍯 Тип: {product.product_type.name}\n"
+        f"<b>{safe_html(product.name)}</b>\n\n"
+        f"💬 {safe_html(product.description) or 'Без описания'}\n\n"
+        f"🍯 Тип: {safe_html(product.product_type.name)}\n"
         f"🎲 Цены по размерам:\n{sizes_text}\n"
     )
 

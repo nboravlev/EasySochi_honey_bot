@@ -4,14 +4,19 @@ services:
     container_name: postgres_db_honey
     restart: always
     env_file: .env
+    # По умолчанию БД доступна только с самого сервера (SSH-туннель для DBeaver/serial_actualization).
+    # Открыть наружу: POSTGRES_BIND=0.0.0.0 в .env — осознанно и с firewall.
     ports:
-      - "${POSTGRES_PORT}:5432" 
+      - "${POSTGRES_BIND:-127.0.0.1}:${POSTGRES_PORT}:5432"
     volumes:
       - honey_bot_postgres_data:/var/lib/postgresql/data
     networks:
       - tg_app_net_honey
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   bot_honey:
     build: ./bot
@@ -19,8 +24,8 @@ services:
     container_name: tg_bot_honey
     restart: unless-stopped
     env_file: .env
+    # код берётся из образа (docker compose up -d --build), а не с хоста
     volumes:
-      - ./bot:/bot
       - bot_logs_honey:/app/logs
       - bot_media_honey:/app/media
     depends_on:
@@ -35,8 +40,10 @@ services:
     container_name: log_viewer_honey
     restart: unless-stopped
     env_file: .env
+    # Вьюер без авторизации, а в логах есть персональные данные: по умолчанию только localhost
+    # (доступ через SSH-туннель или nginx с basic-auth). LOG_VIEWER_BIND=0.0.0.0 — открыть наружу.
     ports:
-      - "${LOG_VIEWER_PORT}:${LOG_VIEWER_PORT}"
+      - "${LOG_VIEWER_BIND:-127.0.0.1}:${LOG_VIEWER_PORT}:${LOG_VIEWER_PORT}"
     environment:
       # Явно передаем порт внутрь, чтобы python-скрипт его видел
       - LOG_VIEWER_PORT=${LOG_VIEWER_PORT}

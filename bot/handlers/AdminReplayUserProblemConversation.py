@@ -5,10 +5,13 @@ from telegram.ext import (
 )
 import os
 
+from utils.access import staff_only
+
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
 REPLY_WAITING = 1
 
 
+@staff_only
 async def reply_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()

@@ -14,7 +14,9 @@ if not (DATABASE_URL):
 # Двигаем SQLAlchemy в async‑режим
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True                # включить SQL‑логгинг
+    # SQL-лог с параметрами содержит персональные данные — только для локальной отладки
+    echo=os.getenv("SQL_ECHO", "false").lower() == "true",
+    pool_pre_ping=True,
 )
 
 

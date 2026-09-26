@@ -33,4 +33,4 @@ class Session(Base):
     orders = relationship("Order", back_populates="session")
     
     def __repr__(self):
-        return f"<Session(id={self.id}, user={self.tg_user_id}, Location = {self.location}, role = {self.role_id})>"
+        return f"<Session(id={self.id}, user={self.tg_user_id}, role={self.role_id})>"

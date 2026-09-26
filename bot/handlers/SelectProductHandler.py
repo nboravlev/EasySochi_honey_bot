@@ -19,6 +19,9 @@ select_product_conv = ConversationHandler(
         CUSTOMER_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_customer_comment)]
                 },
     fallbacks=[CommandHandler("cancel", cancel)],
+    # без таймаута пользователь, не дописавший комментарий, оставался в CUSTOMER_COMMENT навсегда
+    allow_reentry=True,
+    conversation_timeout=1800,
 )
 
 

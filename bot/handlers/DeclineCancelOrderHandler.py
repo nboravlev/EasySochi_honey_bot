@@ -5,6 +5,6 @@ conv_decline_cancel = ConversationHandler(
     states={
         DECLINE_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, booking_decline_reason)]
     },
-    fallbacks=["cancel", cancel_decline],
+    fallbacks=[CommandHandler("cancel", cancel_decline)],
     conversation_timeout=300
 )

@@ -26,13 +26,18 @@ from db.models import Session
 from utils.message_tricks import send_message, add_message_to_cleanup, cleanup_messages
 
 from utils.logging_config import structured_logger, LoggingContext
+from utils.access import manager_only
+from utils.constants import APIARY_ADDRESS, Role
 
 (ASK_DATE,
  ASK_TIME) = range(2)
 
 
 #=======Приглашение на дегустацию============
+@manager_only
 async def honey_invite_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        await update.callback_query.answer()
     await send_message(update,"Введите дату мероприятия (в формате ДД.ММ.ГГГГ):"
     )
     return ASK_DATE
@@ -65,7 +70,7 @@ async def honey_invite_ask_time(update: Update, context: ContextTypes.DEFAULT_TY
         # Получаем пользователей
         result = await session.execute(
             select(Session.id,Session.tg_user_id).where(
-                Session.role_id == 3,
+                Session.role_id == Role.TASTING,
                 Session.sent_message == False
             )
         )
@@ -82,7 +87,7 @@ async def honey_invite_ask_time(update: Update, context: ContextTypes.DEFAULT_TY
             f"🍯 <b>Приглашение на дегустацию мёда!</b>\n\n"
             f"Уважаемые гости, приглашаем вас посетить нашу дегустацию мёда "
             f"<b>{event_date.strftime('%d.%m.%Y')}</b> в <b>{event_time.strftime('%H:%M')}</b> "
-            f"по адресу: <i>Сочи, Красная Поляна, ул. Плотинная 2</i> 🐝\n\n"
+            f"по адресу: <i>Сочи, {APIARY_ADDRESS}</i> 🐝\n\n"
             f"Если вы планируете прийти — напишите «Приду» в чат поддержки /help 💬"
         )
 

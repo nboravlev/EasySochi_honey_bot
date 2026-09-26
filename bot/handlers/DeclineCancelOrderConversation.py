@@ -41,23 +41,23 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 if not (ADMIN_CHAT_ID):
     raise RuntimeError("Admin chat id did not set in environment variables")
 
+from utils.access import staff_only
+from utils.constants import OrderStatus
+
 DECLINE_REASON = 1
+MAX_REASON_LENGTH = 255  # orders.manager_comment VARCHAR(255)
 
-ORDER_STATUS_CREATED = 1
-ORDER_STATUS_CUSTOMER_NOTIFIED = 2
-ORDER_STATUS_PROCESSING = 3
-ORDER_STATUS_READY = 4
-ORDER_STATUS_RECEIVED = 5
-ORDER_STATUS_DECLINED = 6
-ORDER_STATUS_EXPIRED = 7
-ORDER_STATUS_DRAFT = 8
+ORDER_STATUS_DECLINED = OrderStatus.DECLINED
+# отклонить можно только незавершённый заказ (прежний чёрный список [2,5,6,7,8,9] в виде белого)
+DECLINABLE_STATUSES = (OrderStatus.CREATED, OrderStatus.PROCESSING, OrderStatus.READY)
 
 
+@staff_only
 async def booking_decline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     query = update.callback_query
     await query.answer()
-    
+
     # Разбор данных из callback
     data_parts = query.data.split("_")
     order_id = int(data_parts[-1])  # ID брони
@@ -68,8 +68,8 @@ async def booking_decline_callback(update: Update, context: ContextTypes.DEFAULT
     try:
         # Это удалит клавиатуру под исходным сообщением
         await query.edit_message_reply_markup(reply_markup=None)
-    except ValueError:
-        await update.message.reply_text("Не удалось убрать клавиатуру.")
+    except Exception:
+        pass  # клавиатура уже снята
 
     # Запрашиваем причину
     keyboard = [[KeyboardButton("отправка причины")]]
@@ -86,7 +86,8 @@ async def booking_decline_reason(update: Update, context: ContextTypes.DEFAULT_T
     if not reason or reason.lower() == "отправка причины":
         reason = "Причина не указана"
     else:
-        reason = safe_html(reason)[:255]
+        # сообщения ниже уходят без parse_mode — храним исходный текст, без HTML-сущностей
+        reason = reason[:MAX_REASON_LENGTH]
 
     order_id = context.user_data.get("decline_order_id")
 
@@ -105,16 +106,13 @@ async def booking_decline_reason(update: Update, context: ContextTypes.DEFAULT_T
             .where(Order.id == order_id)
         )
         order = result.scalar_one_or_none()
-        print(f"DEBUG_cancel: booking_id = {order.id}, status = {order.status.name}, status_id = {order.status_id}")
         if not order:
-            await update.message.reply_text("❌ Бронирование не найдено.", reply_markup=ReplyKeyboardRemove())
+            await update.message.reply_text("❌ Заказ не найден.", reply_markup=ReplyKeyboardRemove())
             return ConversationHandler.END
 
-        # Запрещённые статусы
-        forbidden_statuses = [2,5,6,7,8,9]
-        if order.status_id in forbidden_statuses:
+        if order.status_id not in DECLINABLE_STATUSES:
             await update.message.reply_text(
-                f"⛔ Нельзя отменить бронирование в статусе <b>{order.status.name}</b>.",
+                f"⛔ Нельзя отклонить заказ в статусе <b>{safe_html(order.status.name)}</b>.",
                 reply_markup=ReplyKeyboardRemove(),
                 parse_mode="HTML"
             )

@@ -43,8 +43,13 @@ OWNER_ID = os.getenv("OWNER_ID")
 if not (OWNER_ID):
     raise RuntimeError("Owner chat id did not set in environment variables")
 
+from utils.access import manager_only
+
+# колбэки действий над заказом, после которых список показывается заново (см. OrderStatusConfirmed/Ready)
+REFRESH_PREFIXES = ("confirm_order_", "order_ready_")
 
 
+@manager_only
 async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Обрабатывает нажатие на кнопку "📨 Мои заказы" и навигацию между карточками заказов.
@@ -55,7 +60,6 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
     user_tg_id = update.effective_user.id if update.effective_user else None
     is_admin = str(user_tg_id) == str(OWNER_ID)
     context.user_data["from_orders_list"] = True
-    print(f"DEBUG_sellers_ORDERS_callback: {data}, is_ADMIN = {is_admin}, OWNER_ID = {OWNER_ID}, tg_user = {user_tg_id}")
     # --- фильтры статусов ---
     status_filters = {
         "Создан": ORDER_STATUS_CREATED,
@@ -75,14 +79,23 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
     # --- определяем действие ---
     if data.startswith("honey_orders_") or not query:
         # ✅ Первичный вызов — из меню или напрямую (без query)
+        # показываем первый непустой список: новые → в работе → архив
+        current_filter = ORDER_STATUS_CREATED
         orders = await fetch_seller_orders(user_tg_id, is_admin, [ORDER_STATUS_CREATED])
         if not orders:
-            orders = await fetch_seller_orders(user_tg_id, is_admin, [ORDER_STATUS_PROCESSING]) 
-        elif not orders:
-            orders = await fetch_seller_orders(user_tg_id, is_admin, archive_statuses) 
+            current_filter = ORDER_STATUS_PROCESSING
+            orders = await fetch_seller_orders(user_tg_id, is_admin, [ORDER_STATUS_PROCESSING])
+        if not orders:
+            current_filter = None
+            orders = await fetch_seller_orders(user_tg_id, is_admin, archive_statuses)
         context.user_data["seller_orders"] = orders
         context.user_data["current_index"] = 0
-        context.user_data["current_filter"] = ORDER_STATUS_CREATED
+        context.user_data["current_filter"] = current_filter
+
+    elif data.startswith(REFRESH_PREFIXES):
+        # заказ только что сменил статус — перечитываем текущий фильтр, позицию сохраняем
+        statuses = [current_filter] if current_filter else archive_statuses
+        context.user_data["seller_orders"] = await fetch_seller_orders(user_tg_id, is_admin, statuses)
 
     elif data.startswith("owner_order_next_") or data.startswith("owner_order_prev_"):
         # ✅ Навигация по заказам
@@ -121,14 +134,27 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
             await context.bot.send_message(chat_id, "⚠️ Неизвестное действие.")
         return ConversationHandler.END
 
+    # колбэк смены статуса уже отвечен вызывающим хендлером (с алертом)
+    if query and not data.startswith(REFRESH_PREFIXES):
+        await query.answer()
+
     # --- показываем карточку ---
     orders = context.user_data.get("seller_orders", [])
     if not orders:
         text = "❌ Заказы не найдены."
+        # оставляем фильтры и выход в меню, иначе из пустого списка некуда нажать
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(label, callback_data=f"owner_order_filter_{status_id or 'all'}")
+             for label, status_id in status_filters.items()],
+            [InlineKeyboardButton("⬅️ Вернуться в меню", callback_data="back_menu")]
+        ])
         if query:
-            await query.edit_message_text(text)
+            try:
+                await query.edit_message_text(text, reply_markup=markup)
+            except Exception:
+                await query.message.reply_text(text, reply_markup=markup)
         else:
-            await context.bot.send_message(update.effective_chat.id, text)
+            await context.bot.send_message(update.effective_chat.id, text, reply_markup=markup)
         return VIEW_ORDERS
 
     current_index = context.user_data.get("current_index", 0)
@@ -147,7 +173,8 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         await context.bot.send_message(update.effective_chat.id, text, reply_markup=markup, parse_mode="HTML")
 
-    return ConversationHandler.END
+    # остаёмся в VIEW_ORDERS, иначе кнопки «Следующий/Предыдущий» и фильтры не обрабатываются
+    return VIEW_ORDERS
 
 #=========конец диалога=============
 async def end_and_go(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:

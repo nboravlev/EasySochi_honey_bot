@@ -41,9 +41,13 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 if not (ADMIN_CHAT_ID):
     raise RuntimeError("Admin chat id did not set in environment variables")
 
-ORDER_STATUS_CREATED = 1
-ORDER_STATUS_PROCESSING = 3
+from utils.access import staff_only
+from utils.constants import OrderStatus, APIARY_ADDRESS
 
+ORDER_STATUS_CREATED = OrderStatus.CREATED
+ORDER_STATUS_PROCESSING = OrderStatus.PROCESSING
+
+@staff_only
 async def order_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle booking confirmation by owner"""
     query = update.callback_query
@@ -68,11 +72,13 @@ async def order_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE)
             order = result.scalar_one_or_none()
             
             if not order:
+                await query.answer()
                 await query.message.reply_text("❌ Заказ не найден.")
                 return ConversationHandler.END
             if order.status_id != ORDER_STATUS_CREATED:
+                await query.answer()
                 await query.message.reply_text(
-                    f"Заказ в статусе <b>{order.status.name}</b> \n"
+                    f"Заказ в статусе <b>{safe_html(order.status.name)}</b> \n"
                     f"нельзя подтвердить. Обратитесь к администратору.",
                     parse_mode="HTML"
                 )
@@ -104,26 +110,26 @@ async def order_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 chat_id=order.tg_user_id,
                 text=(
                     f"🍯 Ваш заказ №{order.id} подтвержден!\n\n"
-                    f"{order.product_size.product.name} ({order.product_size.sizes.name}кг х {order.product_count})\n"
+                    f"{order.product_size.product.name} ({order.product_size.sizes.name}кг х {order.product_count})\n"  # без parse_mode, экранирование не нужно
                     f"Когда заказ будет готов, вы получите уведомление.\n"
                     f"Оплата {order.total_price}₽ при получении переводом или наличными.\n"
                     f"Получение заказа:\n"
-                    f"Красная Поляна, ул. Плотинная, д. 4"
+                    f"{APIARY_ADDRESS}"
                 ),
                 reply_markup=reply_markup_customer
             )
-            await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
+            # сообщение ушло покупателю — в очередь очистки менеджера его не кладём
             created_local = order.created_at + timedelta(hours=3)
             manager_text = (
                 f"🔔 Заказ #{order.id}🔔\n\n"
-                f"🍯: <b>{order.product_size.product.name}</b>\n"
+                f"🍯: <b>{safe_html(order.product_size.product.name)}</b>\n"
                 f"🫙 Размер: {order.product_size.sizes.name}кг\n"
                 f"🔢 Количество: {order.product_count}\n"
                 f"💰 Стоимость: {order.total_price} ₽\n"
                 f"⏰ Создан: {created_local.strftime('%H:%M %d.%m.%Y')}\n"
-                f"💬 Комментарий клиента: {order.customer_comment or '—'}\n"
-                f"👨: {order.user.firstname or order.user.username}\n"
-                f"☎️ Номер: {order.user.phone_number or 'не указан'}"
+                f"💬 Комментарий клиента: {safe_html(order.customer_comment) or '—'}\n"
+                f"👨: {safe_html(order.user.firstname or order.user.username)}\n"
+                f"☎️ Номер: {safe_html(order.user.phone_number) or 'не указан'}"
             )
                 # новая клавиатура: только "Готов к выдаче"
             new_keyboard = InlineKeyboardMarkup([
@@ -131,8 +137,8 @@ async def order_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ])
             await session.commit()
 
-            from_orders = context.user_data.get("from_orders_list")
-            print(f"DEBUG_FROM_orders_LIST = {from_orders}")
+            # «из списка» — только если кнопку нажали в личном кабинете, а не в админ-чате
+            from_orders = context.user_data.get("from_orders_list") and query.message.chat.type == "private"
 
             if from_orders:
                 await query.answer(f"Заказ №{order.id} подтвержден 🤝", show_alert=True)

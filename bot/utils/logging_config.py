@@ -9,26 +9,25 @@ from typing import Optional, Dict, Any
 import inspect
 from functools import wraps
 
+_LEVELS = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
+
+
 class StructuredLogger:
     """Enhanced structured logger that handles database operations"""
-    
-    def __init__(self, log_dir: str = "/app/logs"):
+
+    def __init__(self, log_dir: str = "/app/logs", log_level: str = "INFO"):
+        # Предупреждения и ошибки дублируются в stdlib-логгер → stdout → `docker logs`
+        self.logger = logging.getLogger("bot")
+        self.configure(log_dir, log_level)
+
+    def configure(self, log_dir: str, log_level: str = "INFO"):
+        """Перенастраивает этот же экземпляр: модули держат ссылку на него с момента импорта."""
         self.log_dir = Path(log_dir)
-        self.log_dir.mkdir(exist_ok=True)
-        
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.min_level = _LEVELS.get(str(log_level).upper(), _LEVELS["INFO"])
+
         # Setup structured log file
         self.structured_log_file = self.log_dir / "bot_structured.log"
-        
-        # Setup Python logging
-        self.logger = logging.getLogger("bot_logger")
-        self.logger.setLevel(logging.DEBUG)
-        
-        # Prevent duplicate handlers
-        if not self.logger.handlers:
-            # File handler for structured logs
-            handler = logging.FileHandler(self.structured_log_file)
-            handler.setFormatter(logging.Formatter('%(message)s'))
-            self.logger.addHandler(handler)
     
     def _get_caller_info(self, skip_frames: int = 2) -> Dict[str, Any]:
         """Get information about the calling function"""
@@ -73,7 +72,10 @@ class StructuredLogger:
         exception: Optional[Exception] = None
     ):
         """Log a structured message"""
-        
+        numeric_level = _LEVELS.get(level, _LEVELS["INFO"])
+        if numeric_level < self.min_level:
+            return
+
         caller_info = self._get_caller_info(skip_frames=3)
         
         log_entry = {
@@ -104,11 +106,21 @@ class StructuredLogger:
         
         # Write to structured log file
         try:
+            # default=str: Decimal/datetime в context раньше роняли json.dumps, и запись терялась
+            line = json.dumps(log_entry, ensure_ascii=False, default=str)
             with open(self.structured_log_file, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(log_entry) + '\n')
+                f.write(line + '\n')
         except Exception as e:
             # Fallback to stderr if log file write fails
             print(f"Failed to write to log file: {e}", file=sys.stderr)
+
+        if numeric_level >= _LEVELS["WARNING"]:
+            self.logger.log(
+                numeric_level,
+                "%s [action=%s user_id=%s order_id=%s %s:%s]",
+                message, action, user_id, order_id, caller_info['module'], caller_info['line'],
+                exc_info=(type(exception), exception, exception.__traceback__) if exception else None,
+            )
     
     def debug(self, message: str, **kwargs):
         self.log('DEBUG', message, **kwargs)
@@ -126,7 +138,11 @@ class StructuredLogger:
         self.log('CRITICAL', message, **kwargs)
 
 # Global logger instance
-structured_logger = StructuredLogger()
+import os as _os
+structured_logger = StructuredLogger(
+    log_dir=_os.getenv("LOG_DIR", "/app/logs"),
+    log_level=_os.getenv("LOG_LEVEL", "INFO"),
+)
 
 # Database operation logging decorators
 def log_database_operation(
@@ -186,7 +202,9 @@ def log_database_operation(
                 )
                 
                 if should_log_completion:
-                    log_level = 'WARNING' if execution_time >= min_execution_time else 'INFO'
+                    # WARNING только для медленных операций; при пороге 0 любая вставка была WARNING
+                    is_slow = min_execution_time > 0 and execution_time >= min_execution_time
+                    log_level = 'WARNING' if is_slow else 'INFO'
                     structured_logger.log(
                         log_level,
                         f"Completed {operation_type} operation: {func.__name__}",
@@ -247,7 +265,9 @@ def log_database_operation(
                 )
                 
                 if should_log_completion:
-                    log_level = 'WARNING' if execution_time >= min_execution_time else 'INFO'
+                    # WARNING только для медленных операций; при пороге 0 любая вставка была WARNING
+                    is_slow = min_execution_time > 0 and execution_time >= min_execution_time
+                    log_level = 'WARNING' if is_slow else 'INFO'
                     structured_logger.log(
                         log_level,
                         f"Completed {operation_type} operation: {func.__name__}",
@@ -606,22 +626,30 @@ def setup_logging(
         log_level: Minimum log level
         enable_console: Whether to also log to console
     """
-    global structured_logger
-    structured_logger = StructuredLogger(log_dir)
-    
-    # Setup console logging if requested
-    if enable_console:
+    # Перенастраиваем существующий экземпляр, а не создаём новый: остальные модули
+    # импортировали structured_logger раньше и держат ссылку на старый объект.
+    structured_logger.configure(log_dir, log_level)
+
+    # stdlib logging (PTB, SQLAlchemy, наши предупреждения) → stdout, его читает `docker logs`
+    level = getattr(logging, str(log_level).upper(), logging.INFO)
+    root = logging.getLogger()
+    root.setLevel(level)
+    if enable_console and not any(getattr(h, "_bot_console", False) for h in root.handlers):
         console_handler = logging.StreamHandler(sys.stdout)
+        console_handler._bot_console = True
         console_handler.setFormatter(
             logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
         )
-        structured_logger.logger.addHandler(console_handler)
-    
-    # Set log level
-    structured_logger.logger.setLevel(getattr(logging, log_level.upper()))
-    
+        root.addHandler(console_handler)
+
+    # httpx на INFO пишет URL каждого запроса к Bot API — вместе с токеном бота
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    # APScheduler на INFO пишет каждый запуск джобы
+    logging.getLogger("apscheduler").setLevel(logging.WARNING)
+
     structured_logger.info(
         "Logging system initialized",
         action="logging_init",

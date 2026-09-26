@@ -2,6 +2,7 @@ import os
 from sqlalchemy import text
 import asyncio
 from db.db_async import get_async_session
+from utils.logging_config import structured_logger
 
 
 
@@ -9,7 +10,7 @@ from db.db_async import get_async_session
 
 # Конфигурация
 
-CHAT_ID = -1002843679066  # канал или чат
+CHAT_ID = int(os.getenv("DB_MONITOR_CHAT_ID", "-1002843679066"))  # канал или чат
 
 async def check_db(context):
     bot = context.bot
@@ -21,6 +22,11 @@ async def check_db(context):
 
     except Exception as e:
         status_ok = False
+        structured_logger.error(
+            "Database health check failed",
+            action="db_health_check_failed",
+            exception=e
+        )
 
 
     # ВСЕГДА отправляем статус, без проверки на изменение
@@ -33,5 +39,9 @@ async def check_db(context):
     try:
         await bot.send_message(chat_id=CHAT_ID, text=text_msg, parse_mode="HTML")
     except Exception as send_error:
-        pass
+        structured_logger.warning(
+            "Failed to send DB status message",
+            action="db_health_notify_failed",
+            context={"chat_id": CHAT_ID, "error": str(send_error)}
+        )
 

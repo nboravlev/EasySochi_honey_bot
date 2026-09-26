@@ -41,9 +41,13 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 if not (ADMIN_CHAT_ID):
     raise RuntimeError("Admin chat id did not set in environment variables")
 
-ORDER_STATUS_PROCESSING = 3
-ORDER_STATUS_READY = 4
+from utils.access import staff_only
+from utils.constants import OrderStatus, APIARY_ADDRESS
 
+ORDER_STATUS_PROCESSING = OrderStatus.PROCESSING
+ORDER_STATUS_READY = OrderStatus.READY
+
+@staff_only
 async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
 #    await query.answer()
@@ -51,7 +55,6 @@ async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         _, _, order_id_str = query.data.split("_")
         order_id = int(order_id_str)
-        print(f"DEBUG_ORDER_READY: {query.data}")
         await cleanup_messages(context)
 
         async with get_async_session() as session:
@@ -69,11 +72,13 @@ async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             order = result.scalar_one_or_none()
             
             if not order:
-                await query.message.reply_text("❌ Бронирование не найдено.")
+                await query.answer()
+                await query.message.reply_text("❌ Заказ не найден.")
                 return ConversationHandler.END
             if order.status_id != ORDER_STATUS_PROCESSING:
+                await query.answer()
                 await query.message.reply_text(
-                    f"Бронирование в статусе <b>{order.status.name}</b> \n"
+                    f"Заказ в статусе <b>{safe_html(order.status.name)}</b> \n"
                     f"нельзя перевести в статус Готово к выдаче. Обратитесь к администратору.",
                     parse_mode="HTML"
                 )
@@ -94,8 +99,8 @@ async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             #manager_notification
             # 2) Убираем inline-кнопки из того сообщения, где была нажата кнопка (owner message)
-            from_orders = context.user_data.get("from_orders_list")
-            print(f"DEBUG_FROM_orders_LIST = {from_orders}")
+            # «из списка» — только если кнопку нажали в личном кабинете, а не в админ-чате
+            from_orders = context.user_data.get("from_orders_list") and query.message.chat.type == "private"
             keyboard_customer = [
                 [InlineKeyboardButton("🧭 Показать на карте", callback_data=f"show_map")],
                 [InlineKeyboardButton(str("Планирую получить:"), callback_data=f"noop")],
@@ -105,10 +110,10 @@ async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             ]
             text_customer = (
                     f"💥Ваш заказ №{order.id} ожидает получения!💥\n\n"
-                    f"<b>{order.product_size.product.name}</b> ({order.product_size.sizes.name}кг х {order.product_count})\n"
+                    f"<b>{safe_html(order.product_size.product.name)}</b> ({order.product_size.sizes.name}кг х {order.product_count})\n"
                     f"К оплате <b>{order.total_price}₽</b> переводом или наличными.\n"
                     f"Получение заказа:\n"
-                    f"Красная Поляна, ул. Плотинная, д. 4"
+                    f"{APIARY_ADDRESS}"
                 )
             reply_markup_customer = InlineKeyboardMarkup(keyboard_customer)
             msg = await context.bot.send_message(
@@ -117,7 +122,8 @@ async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=reply_markup_customer,
                 parse_mode="HTML"
             )
-            await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
+            # сообщение ушло покупателю — в очередь очистки менеджера его не кладём,
+            # иначе следующее действие менеджера удаляло у покупателя кнопки «сегодня/завтра»
 
             if from_orders:
                 await query.answer(f"Заказ №{order.id} готов к выдаче 🤝", show_alert=True)
