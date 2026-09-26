@@ -1,6 +1,6 @@
 from io import BytesIO
 from PIL import Image as PILImage
-from telegram import InputFile, Update
+from telegram import InputFile
 
 TARGET_SIZE = 512  # размер стороны квадрата в пикселях
 

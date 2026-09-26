@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
-from db.db import Base
+from db.base import Base
 
 class ProductType(Base):
     __tablename__ = "product_types"

@@ -1,39 +1,23 @@
 FROM python:3.12-slim
 
-WORKDIR /bot 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Корень проекта внутри контейнера — /bot
+WORKDIR /bot
 
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+# Все зависимости ставятся из готовых колёс — компилятор и libpq не нужны
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# системные зависимости для psycopg2 и pg_isready
+COPY . .
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends gcc libpq-dev postgresql-client && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY ./requirements.txt /bot/requirements.txt  
-RUN pip install --no-cache-dir -r /bot/requirements.txt
-  
-# Устанавливаем зависимости
-
-COPY . /bot/
-
-RUN chmod +x /bot/entrypoint.sh  
-
-# Create non-root user for security and set proper permissions
-RUN useradd -m -u 1000 honeybot && \
-    chown -R honeybot:honeybot /bot
-
-# Switch to non-root user
+# Непривилегированный пользователь (UID 1000 — владелец томов на хосте)
+RUN useradd -m -u 1000 honeybot \
+    && chmod +x /bot/entrypoint.sh \
+    && chown -R honeybot:honeybot /bot
 USER honeybot
 
-# ENTRYPOINT прописан в образе
 ENTRYPOINT ["/bot/entrypoint.sh"]
-
-
-
-# CMD можно оставить универсальным
 CMD ["bot"]
-

@@ -1,8 +1,6 @@
-from sqlalchemy import Column, Integer, String, Numeric, ForeignKey
+from sqlalchemy import Column, Integer, Numeric, ForeignKey
 from sqlalchemy.orm import relationship
-from datetime import datetime
-from db.db import Base
-import re
+from db.base import Base
 
 class Size(Base):
     __tablename__ = "sizes"

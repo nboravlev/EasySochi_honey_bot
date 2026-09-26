@@ -1,4 +1,11 @@
-from handlers.UserSendProblemConversation import *
+from telegram.ext import CommandHandler, ConversationHandler, MessageHandler, filters
+
+from handlers.UserSendProblemConversation import (
+    SEND_PROBLEM,
+    cancel_command,
+    process_problem,
+    start_problem,
+)
 
 problem_handler = ConversationHandler(
     entry_points=[CommandHandler("help", start_problem)],

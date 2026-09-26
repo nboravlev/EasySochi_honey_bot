@@ -12,11 +12,9 @@ from sqlalchemy import (
     BIGINT
 )
 from sqlalchemy.orm import relationship
-from geoalchemy2 import Geometry
 from datetime import datetime
-from db.db import Base
+from db.base import Base
 
-from decimal import Decimal
 
 
 class Product(Base):

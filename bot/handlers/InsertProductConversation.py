@@ -2,10 +2,7 @@ from db.db_async import get_async_session
 from db.models.product_types import ProductType
 from db.models.products import Product
 from db.models.images import Image
-from db.models.productsize_images import ProductsizeImage
-from db.models.packages import Package
 from db.models.product_sizes import ProductSize
-from db.models.sizes import Size
 
 from sqlalchemy.orm import selectinload
 
@@ -21,29 +18,17 @@ from telegram import (
     )
 from telegram.ext import (
     ContextTypes, 
-    ConversationHandler, 
-    CommandHandler, 
-    MessageHandler, 
-    filters, 
-    CallbackQueryHandler
+    ConversationHandler
 )
-from utils.message_tricks import send_message,add_message_to_cleanup,cleanup_messages
+from utils.message_tricks import add_message_to_cleanup
 from utils.escape import safe_html
 from utils.full_view_manager import render_card
-from utils.call_size import init_size_map, get_size_id_async
+from utils.call_size import get_size_id_async
 from utils.preprocess_foto import preprocess_photo_crop_center
 from utils.access import manager_only
 from utils.constants import MAX_PRICE, MAX_PRODUCT_NAME_LENGTH
 from utils.validation import parse_price
-from utils.logging_config import (
-    structured_logger, 
-    log_db_select, 
-    log_db_insert, 
-    log_db_update,
-    log_db_delete,
-    LoggingContext,
-    monitor_performance
-)
+from utils.logging_config import structured_logger
 
 
 
@@ -66,27 +51,26 @@ MAX_DESCRIPTION_LENGTH = 255
 async def start_add_object(update: Update, context: ContextTypes.DEFAULT_TYPE):
     #await cleanup_messages(context)
 
-    with LoggingContext("start_add_object", user_id=update.effective_user.id):
-        try:
-            if update.callback_query:
-                query = update.callback_query
-                await query.answer()
-                await query.edit_message_reply_markup(reply_markup=None)
-                send_to = query.message
-            else:
-                send_to = update.message
+    try:
+        if update.callback_query:
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_reply_markup(reply_markup=None)
+            send_to = query.message
+        else:
+            send_to = update.message
 
-            keyboard = [[KeyboardButton("Сохранить название")]]
-            await send_to.reply_text(
-                "Введите название продукта:",
-                reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
-            )
-            structured_logger.info("Prompted user for product name")
-            return PRODUCT_NAME
-        except Exception as e:
-            structured_logger.error("Error in start_add_object", exception=e)
-            await update.message.reply_text("Ошибка при старте добавления продукта.")
-            return ConversationHandler.END
+        keyboard = [[KeyboardButton("Сохранить название")]]
+        await send_to.reply_text(
+            "Введите название продукта:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+        )
+        structured_logger.info("Prompted user for product name")
+        return PRODUCT_NAME
+    except Exception as e:
+        structured_logger.error("Error in start_add_object", exception=e)
+        await update.message.reply_text("Ошибка при старте добавления продукта.")
+        return ConversationHandler.END
 
 
 async def handle_object_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -97,23 +81,22 @@ async def handle_object_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return PRODUCT_NAME
     context.user_data["name"] = name
-    with LoggingContext("handle_object_name", user_id=update.effective_user.id):
-        try:
-            async with get_async_session() as session:
-                types = (await session.execute(ProductType.__table__.select())).fetchall()
-                keyboard = [[InlineKeyboardButton(t.name, callback_data=str(t.id))] for t in types]
-                reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                f"Название продукта: <b>{safe_html(name)}</b>\nВыберите сорт меда:",
-                reply_markup=reply_markup,
-                parse_mode="HTML"
-            )
-            structured_logger.info(f"User entered product name: {name}")
-            return PRODUCT_TYPE
-        except Exception as e:
-            structured_logger.error("Error in handle_object_name", exception=e)
-            await update.message.reply_text("Ошибка при обработке названия продукта.")
-            return ConversationHandler.END
+    try:
+        async with get_async_session() as session:
+            types = (await session.execute(ProductType.__table__.select())).fetchall()
+            keyboard = [[InlineKeyboardButton(t.name, callback_data=str(t.id))] for t in types]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            f"Название продукта: <b>{safe_html(name)}</b>\nВыберите сорт меда:",
+            reply_markup=reply_markup,
+            parse_mode="HTML"
+        )
+        structured_logger.info(f"User entered product name: {name}")
+        return PRODUCT_TYPE
+    except Exception as e:
+        structured_logger.error("Error in handle_object_name", exception=e)
+        await update.message.reply_text("Ошибка при обработке названия продукта.")
+        return ConversationHandler.END
 
 
 async def handle_object_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -121,12 +104,11 @@ async def handle_object_type(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     type_id = int(query.data)
     context.user_data["type_id"] = type_id
-    with LoggingContext("handle_object_type", user_id=update.effective_user.id):
-        structured_logger.info(f"User selected product type {type_id}")
-        # Инициализация размеров
-        context.user_data["current_size_index"] = 0
-        context.user_data["sizes"] = []
-        return await ask_size(update, context)
+    structured_logger.info(f"User selected product type {type_id}")
+    # Инициализация размеров
+    context.user_data["current_size_index"] = 0
+    context.user_data["sizes"] = []
+    return await ask_size(update, context)
 
 
 async def ask_size(update: Update, context: ContextTypes.DEFAULT_TYPE):

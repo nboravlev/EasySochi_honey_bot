@@ -1,14 +1,13 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
-    ConversationHandler, ContextTypes, filters, ApplicationHandlerStop
+    ConversationHandler, ContextTypes, ApplicationHandlerStop
 )
-import os
 
 from utils.escape import safe_html
+from config import get_settings
 
 
-ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
+ADMIN_CHAT_ID = get_settings().admin_chat_id
 
 SEND_PROBLEM = 1
 

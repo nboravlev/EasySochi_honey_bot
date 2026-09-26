@@ -1,4 +1,10 @@
-from handlers.AdminReplayUserProblemConversation import *
+from telegram.ext import CallbackQueryHandler, ConversationHandler, MessageHandler, filters
+
+from handlers.AdminReplayUserProblemConversation import (
+    REPLY_WAITING,
+    handle_admin_reply,
+    reply_callback,
+)
 
 admin_replay_handler = ConversationHandler(
     entry_points=[CallbackQueryHandler(reply_callback, pattern="^reply_")],

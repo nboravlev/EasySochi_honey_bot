@@ -1,31 +1,22 @@
 
 from telegram import (
-    ReplyKeyboardMarkup, 
-    KeyboardButton, 
     Update, 
-    ReplyKeyboardRemove, 
-    InlineKeyboardButton, 
-    InlineKeyboardMarkup
+    ReplyKeyboardRemove
     )
 from telegram.ext import (
     ContextTypes, 
-    ConversationHandler, 
-    CommandHandler, 
-    MessageHandler, 
-    filters, 
-    CallbackQueryHandler
+    ConversationHandler
 )
 from db.db_async import get_async_session
 from sqlalchemy import select, update as sa_update
-from sqlalchemy.orm import selectinload
-from datetime import timedelta, datetime
+from datetime import datetime
 from handlers.RegistrationConversation import route_after_login
 
 from db.models import Session
 
-from utils.message_tricks import send_message, add_message_to_cleanup, cleanup_messages
+from utils.message_tricks import send_message, cleanup_messages
 
-from utils.logging_config import structured_logger, LoggingContext
+from utils.logging_config import structured_logger
 from utils.access import manager_only
 from utils.constants import APIARY_ADDRESS, Role
 
@@ -71,7 +62,7 @@ async def honey_invite_ask_time(update: Update, context: ContextTypes.DEFAULT_TY
         result = await session.execute(
             select(Session.id,Session.tg_user_id).where(
                 Session.role_id == Role.TASTING,
-                Session.sent_message == False
+                Session.sent_message.is_(False)
             )
         )
         rows = result.fetchall()

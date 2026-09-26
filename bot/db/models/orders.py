@@ -3,14 +3,12 @@ from sqlalchemy import (
     Integer,
     ForeignKey,
     String,
-    Date,
     Numeric,
     CheckConstraint,
-    DateTime,Boolean, text, Index,
-    BIGINT
+    DateTime,Boolean, text, BIGINT
 )
 from sqlalchemy.orm import relationship
-from db.db import Base
+from db.base import Base
 from datetime import datetime
 
 

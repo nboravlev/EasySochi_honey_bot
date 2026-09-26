@@ -40,40 +40,35 @@ class LogReader:
         """Read and filter structured logs"""
         logs = []
         structured_log_file = self.log_dir / "bot_structured.log"
-        
-        print(f"Looking for log file: {structured_log_file}")
-        print(f"File exists: {structured_log_file.exists()}")
-        print(f"Log directory exists: {self.log_dir.exists()}")
-        if self.log_dir.exists():
-            print(f"Files in log dir: {list(self.log_dir.glob('*'))}")
-        
+
         if not structured_log_file.exists():
             return logs
-        
+
         try:
             with open(structured_log_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                print(f"Read {len(lines)} lines from log file")
-                
-                for line_num, line in enumerate(lines):
+                lines = f.readlines()  # файл ограничен ротацией бота (10 МБ)
+
+                # с конца файла: limit должен отбирать последние записи, а не первые
+                for line_num, line in reversed(list(enumerate(lines))):
                     if not line.strip():
                         continue
-                    
+
                     try:
                         log_entry = json.loads(line.strip())
-                        
+
                         # Apply filters
                         if level and log_entry.get('level') != level:
                             continue
-                        
+
                         if user_id and log_entry.get('user_id') != user_id:
                             continue
-                        
-                        if action and action.lower() not in log_entry.get('action', '').lower():
+
+                        # `or ''`: в старых записях action мог быть null
+                        if action and action.lower() not in (log_entry.get('action') or '').lower():
                             continue
-                        
+
                         if search_query:
-                            search_text = f"{log_entry.get('message', '')} {log_entry.get('action', '')}".lower()
+                            search_text = f"{log_entry.get('message') or ''} {log_entry.get('action') or ''}".lower()
                             if search_query.lower() not in search_text:
                                 continue
                         
@@ -109,9 +104,8 @@ class LogReader:
         
         except Exception as e:
             print(f"Error reading logs: {e}")
-        
-        print(f"Returning {len(logs)} logs after filtering")
-        return list(reversed(logs))  # Most recent first
+
+        return logs  # Most recent first
     
     def get_log_stats(self, hours: int = 24) -> Dict[str, Any]:
         """Get logging statistics for the last N hours"""

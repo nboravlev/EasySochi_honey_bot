@@ -1,97 +1,7 @@
-from decimal import Decimal
 from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from db.models import ProductSize, Size, Image
 from db.db_async import get_async_session
-import calendar
-from datetime import date, timedelta
-
-# Префиксы для callback
-CB_PREFIX = "CAL"
-CB_SELECT = f"{CB_PREFIX}_SELECT"
-CB_NAV = f"{CB_PREFIX}_NAV"
-
-def build_calendar(year: int, month: int, check_in=None, check_out=None):
-    """Строит inline-календарь"""
-    cal = calendar.Calendar(firstweekday=0)
-    keyboard = []
-
-    # Шапка с месяцем
-    keyboard.append([InlineKeyboardButton(f"{calendar.month_name[month]} {year}", callback_data="IGNORE")])
-
-    # Дни недели
-    week_days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-    keyboard.append([InlineKeyboardButton(d, callback_data="IGNORE") for d in week_days])
-
-    # Сетка дней
-    for week in cal.monthdatescalendar(year, month):
-        row = []
-        for day in week:
-            if day.month != month:
-                row.append(InlineKeyboardButton(" ", callback_data="IGNORE"))
-            else:
-                text = str(day.day)
-
-                # Подсветка выбранного диапазона
-                if check_in and check_out and check_in <= day <= check_out:
-                    text = f"✔️{day.day}"
-                elif check_in and day == check_in:
-                    text = f"✔️{day.day}"
-                elif check_out and day == check_out:
-                    text = f"🔴{day.day}"
-
-                row.append(InlineKeyboardButton(text, callback_data=f"{CB_SELECT}:{day.isoformat()}"))
-        keyboard.append(row)
-
-    # Навигация
-    prev_month = (date(year, month, 1) - timedelta(days=1)).replace(day=1)
-    next_month = (date(year, month, calendar.monthrange(year, month)[1]) + timedelta(days=1)).replace(day=1)
-    keyboard.append([
-        InlineKeyboardButton("◀️", callback_data=f"{CB_NAV}:{prev_month.year}:{prev_month.month}"),
-        InlineKeyboardButton("▶️", callback_data=f"{CB_NAV}:{next_month.year}:{next_month.month}")
-    ])
-
-    return InlineKeyboardMarkup(keyboard)
-
-
-def build_types_keyboard(types, selected):
-    """Формирует inline-клавиатуру с отметками выбранных типов."""
-    keyboard = []
-    for t in types:
-        mark = "📍 " if t["id"] in selected else ""
-        keyboard.append([InlineKeyboardButton(f"{mark}{t['name']}", callback_data=f"type_{t['id']}")])
-    
-    # Добавляем кнопку подтверждения
-    keyboard.append([InlineKeyboardButton("✅ Подтвердить выбор", callback_data="confirm_types")])
-    return keyboard
-
-def build_price_filter_keyboard():
-    return [
-        [InlineKeyboardButton("0 – 3000 ₽", callback_data="price_0_3000")],
-        [InlineKeyboardButton("3000 – 5900 ₽", callback_data="price_3000_5900")],
-        [InlineKeyboardButton("6000+ ₽", callback_data="price_6000_plus")],
-        [InlineKeyboardButton("💰 Без фильтра", callback_data="price_all")]
-    ]
-
-def build_add_keyboard(adds, selected):
-    """Формирует inline-клавиатуру с отметками выбранных типов."""
-    keyboard = []
-
-    for a in adds:
-        mark = "📌 " if a["id"] in selected else ""
-        keyboard.append([InlineKeyboardButton(f"{mark}{a['name']}", callback_data=f"type_{a['id']}")])
-
-    # Добавляем кнопки в зависимости от выбранных
-    if selected:
-        # Есть выбранные — только Подтвердить
-        keyboard.append([InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_adds")])
-    else:
-        # Нет выбранных — Подтвердить и Пропустить
-        keyboard.append([
-            InlineKeyboardButton("➡️ Пропустить", callback_data="skip")
-        ])
-
-    return keyboard
 
 async def get_product_sizes_keyboard(product_id: int) -> tuple[list[dict], InlineKeyboardMarkup]:
     """
@@ -112,7 +22,7 @@ async def get_product_sizes_keyboard(product_id: int) -> tuple[list[dict], Inlin
             .join(Size, Size.id == ProductSize.size_id)
             .where(
                 ProductSize.product_id == product_id,
-                ProductSize.is_active == True
+                ProductSize.is_active.is_(True)
             )
             .order_by(ProductSize.price.asc())
         )
@@ -121,7 +31,7 @@ async def get_product_sizes_keyboard(product_id: int) -> tuple[list[dict], Inlin
                 # Получаем первое активное фото
         image_result = await session.execute(
             select(Image.tg_file_id)
-            .where(Image.product_id == product_id, Image.is_active == True)
+            .where(Image.product_id == product_id, Image.is_active.is_(True))
             .order_by(Image.created_at.asc())
             .limit(1)
         )

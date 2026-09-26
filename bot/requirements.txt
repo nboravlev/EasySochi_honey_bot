@@ -1,41 +1,28 @@
-alembic==1.16.4
-annotated-types==0.7.0
-anyio==4.9.0
-APScheduler==3.10.4
-asyncpg==0.30.0
-certifi==2025.7.14
-click==8.2.1
-fastapi==0.116.1
-GeoAlchemy2==0.17.1
-greenlet==3.2.3
-h11==0.16.0
-httpcore==1.0.9
-httptools==0.6.4
-httpx==0.25.2
-idna==3.10
-jinja2==3.1.0
-Mako==1.3.10
-MarkupSafe==3.0.2
-numpy==2.3.1
-packaging==25.0
-Pillow>=10.0.0
-psycopg2-binary==2.9.10
-pydantic==2.11.7
-pydantic_core==2.33.2
-python-dotenv==1.1.1
-python-multipart==0.0.9
-python-telegram-bot==20.7
-pytz==2025.2
-PyYAML==6.0.2
-shapely==2.1.1
-six==1.17.0
-sniffio==1.3.1
-SQLAlchemy==2.0.41
-starlette==0.47.2
-typing-inspection==0.4.1
-typing_extensions==4.14.1
-tzlocal==5.3.1
-uvicorn==0.35.0
-uvloop==0.21.0
-watchfiles==1.1.0
-websockets==15.0.1
+alembic==1.16.4           # via -r requirements.in
+annotated-types==0.7.0    # via pydantic
+anyio==4.9.0              # via httpx
+apscheduler==3.10.4       # via python-telegram-bot
+asyncpg==0.30.0           # via -r requirements.in
+certifi==2025.7.14        # via httpcore, httpx
+geoalchemy2==0.17.1       # via -r requirements.in
+greenlet==3.2.3           # via sqlalchemy
+h11==0.16.0               # via httpcore
+httpcore==1.0.9           # via httpx
+httpx==0.25.2             # via python-telegram-bot
+idna==3.10                # via anyio, httpx
+mako==1.3.10              # via alembic
+markupsafe==3.0.2         # via mako
+packaging==25.0           # via geoalchemy2
+pillow==11.3.0            # via -r requirements.in
+pydantic==2.11.7          # via pydantic-settings
+pydantic-core==2.33.2     # via pydantic
+pydantic-settings==2.15.0  # via -r requirements.in
+python-dotenv==1.1.1      # via pydantic-settings
+python-telegram-bot==20.7  # via -r requirements.in
+pytz==2025.2              # via apscheduler, python-telegram-bot
+six==1.17.0               # via apscheduler
+sniffio==1.3.1            # via anyio, httpx
+sqlalchemy==2.0.41        # via -r requirements.in, alembic, geoalchemy2
+typing-extensions==4.14.1  # via alembic, anyio, pydantic, pydantic-core, sqlalchemy, typing-inspection
+typing-inspection==0.4.1  # via pydantic, pydantic-settings
+tzlocal==5.3.1            # via apscheduler

@@ -9,10 +9,10 @@ from sqlalchemy import (
     Index,
     text,
 )
-from sqlalchemy.orm import relationship, backref
+from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
 from datetime import datetime
-from db.db import Base
+from db.base import Base
 
 
 class OrderDelivery(Base):

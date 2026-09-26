@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, Time
 from sqlalchemy.orm import relationship
-from db.db import Base
+from db.base import Base
 
 class DeliveryInterval(Base):
     __tablename__ = "delivery_intervals"

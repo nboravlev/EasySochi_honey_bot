@@ -1,33 +1,21 @@
 from telegram import (
-    ReplyKeyboardMarkup, 
-    KeyboardButton, 
     Update, 
-    ReplyKeyboardRemove, 
     InlineKeyboardButton, 
     InlineKeyboardMarkup
     )
 from telegram.ext import (
     ContextTypes, 
-    ConversationHandler, 
-    CommandHandler, 
-    MessageHandler, 
-    filters, 
-    CallbackQueryHandler
+    ConversationHandler
 )
-from db.db_async import get_async_session
-from sqlalchemy import select, update as sa_update
-from sqlalchemy.orm import selectinload
-from datetime import timedelta, datetime
 from handlers.RegistrationConversation import route_after_login
 
-from utils.manager_lk_collection import fetch_seller_orders, prepare_owner_orders_cards, fetch_seller_products, get_manager_product_sizes_keyboard
-from utils.message_tricks import send_message, add_message_to_cleanup, cleanup_messages
+from utils.manager_lk_collection import fetch_seller_orders, prepare_owner_orders_cards
+from utils.message_tricks import cleanup_messages
 
-from utils.logging_config import structured_logger, LoggingContext
 
-from db.models import ProductSize,Product,Session
 
-import os
+from utils.access import manager_only
+from utils.access import is_owner
 
 ORDER_STATUS_CREATED = 1
 ORDER_STATUS_PROCESSING = 3
@@ -39,11 +27,7 @@ ORDER_STATUS_RECEIVED = 5
 
 VIEW_ORDERS = 1
 
-OWNER_ID = os.getenv("OWNER_ID")
-if not (OWNER_ID):
-    raise RuntimeError("Owner chat id did not set in environment variables")
 
-from utils.access import manager_only
 
 # колбэки действий над заказом, после которых список показывается заново (см. OrderStatusConfirmed/Ready)
 REFRESH_PREFIXES = ("confirm_order_", "order_ready_")
@@ -58,7 +42,7 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     data = query.data if query else ""
     user_tg_id = update.effective_user.id if update.effective_user else None
-    is_admin = str(user_tg_id) == str(OWNER_ID)
+    is_admin = is_owner(user_tg_id)
     context.user_data["from_orders_list"] = True
     # --- фильтры статусов ---
     status_filters = {

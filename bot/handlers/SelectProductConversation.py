@@ -1,29 +1,23 @@
 from telegram import (
-    InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto,
-    Update, ReplyKeyboardRemove
+    InlineKeyboardButton, InlineKeyboardMarkup, Update, ReplyKeyboardRemove
 )
 from telegram.ext import (
-    ConversationHandler, CallbackQueryHandler, CommandHandler,
-    MessageHandler, filters, ContextTypes
+    ConversationHandler, ContextTypes
 )
 from sqlalchemy.orm import selectinload
-from utils.logging_config import LoggingContext, structured_logger, log_db_select
+from utils.logging_config import structured_logger
 from db.db_async import get_async_session
-from db.models import Product, ProductType, ProductSize, Size, Order, OrderPackage, Package, Session
+from db.models import Product, ProductType, ProductSize, Size, Order, Session
 from sqlalchemy import select
-from datetime import datetime
 from utils.message_tricks import add_message_to_cleanup, cleanup_messages,send_message
 from utils.keyboard_builder import get_product_sizes_keyboard, build_order_keyboard
-from utils.user_session_lastorder import get_actual_session_by_tg_id
 from utils.escape import safe_html
 from utils.constants import OrderStatus, Role, MAX_PRODUCT_COUNT, MAX_COMMENT_LENGTH
 from datetime import timedelta
 
-import os
+from config import get_settings
 
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-if not (ADMIN_CHAT_ID):
-    raise RuntimeError("Admin chat id did not set in environment variables")
+ADMIN_CHAT_ID = get_settings().admin_chat_id
 
 
 # Состояния

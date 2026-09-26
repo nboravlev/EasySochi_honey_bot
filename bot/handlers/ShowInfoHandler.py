@@ -1,8 +1,7 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ForceReply
-from telegram.ext import ContextTypes, ConversationHandler, ApplicationHandlerStop, CallbackQueryHandler
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
 
 
-import os
 
 
 

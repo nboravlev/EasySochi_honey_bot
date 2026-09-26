@@ -7,13 +7,12 @@ from telegram import (
     InlineKeyboardButton, 
     InlineKeyboardMarkup
     )
-from utils.message_tricks import add_message_to_cleanup, send_message
-from utils.logging_config import log_db_update, structured_logger, LoggingContext
+from utils.message_tricks import send_message
+from utils.logging_config import structured_logger
 from utils.access import manager_only, is_owner
 
 
 @manager_only
-@log_db_update
 async def confirm_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     message = query.message
@@ -66,7 +65,6 @@ async def confirm_product_callback(update: Update, context: ContextTypes.DEFAULT
 
 
     except Exception as e:
-        # LoggingContext will automatically log the error with full context
         structured_logger.error(
             f"Critical error in product confirmation: {str(e)}",
             user_id = update.effective_user.id,

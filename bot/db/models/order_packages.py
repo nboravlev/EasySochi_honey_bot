@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, ForeignKey, Numeric
+from sqlalchemy import Column, Integer, ForeignKey
 from sqlalchemy.orm import relationship
-from db.db import Base
+from db.base import Base
 
 class OrderPackage(Base):
     __tablename__ = "order_packages"

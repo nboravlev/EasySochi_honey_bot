@@ -37,3 +37,7 @@ postgres_data_*/
 *.swp
 *.swo
 docs/
+
+# Инструменты
+.pytest_cache/
+.ruff_cache/
