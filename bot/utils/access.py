@@ -1,8 +1,8 @@
-"""Проверка прав на действия менеджера.
+"""Проверка прав.
 
-Менеджер — пользователь из MANAGER_LIST или OWNER_ID.
-Сотрудник админ-чата — любой участник чата ADMIN_CHAT_ID (кнопки заказов
-приходят туда) либо менеджер.
+- Владелец — OWNER_ID из .env (корень доверия, назначает менеджеров).
+- Менеджер — users.role_id = MANAGER (назначает владелец командой /managers) или владелец.
+- Сотрудник админ-чата — любой участник чата ADMIN_CHAT_ID (туда приходят кнопки заказов) либо менеджер.
 """
 from functools import wraps
 
@@ -10,6 +10,8 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from config import get_settings
+from domain.enums import Role
+from services.users import get_role
 from utils.logging_config import structured_logger
 
 DENIED_TEXT = "🚫 Недостаточно прав для этого действия."
@@ -20,16 +22,20 @@ def is_owner(tg_user_id: int | None) -> bool:
     return owner_id is not None and tg_user_id == owner_id
 
 
-def is_manager(tg_user_id: int | None) -> bool:
-    return tg_user_id in get_settings().manager_ids
+async def is_manager(tg_user_id: int | None) -> bool:
+    if tg_user_id is None:
+        return False
+    if is_owner(tg_user_id):
+        return True
+    return await get_role(tg_user_id) == Role.MANAGER
 
 
-def is_staff(update: Update) -> bool:
+async def is_staff(update: Update) -> bool:
     user = update.effective_user
     chat = update.effective_chat
-    if user and is_manager(user.id):
+    if chat is not None and chat.id == get_settings().admin_chat_id:
         return True
-    return chat is not None and chat.id == get_settings().admin_chat_id
+    return bool(user) and await is_manager(user.id)
 
 
 async def _deny(update: Update, handler_name: str):
@@ -51,21 +57,28 @@ async def _deny(update: Update, handler_name: str):
     return ConversationHandler.END
 
 
-def manager_only(func):
-    """Хендлер доступен только менеджерам (MANAGER_LIST/OWNER_ID)."""
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        if not is_manager(update.effective_user.id if update.effective_user else None):
-            return await _deny(update, func.__name__)
-        return await func(update, context, *args, **kwargs)
-    return wrapper
+def _guard(check):
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+            if not await check(update):
+                return await _deny(update, func.__name__)
+            return await func(update, context, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
-def staff_only(func):
-    """Хендлер доступен менеджерам и участникам админ-чата."""
-    @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
-        if not is_staff(update):
-            return await _deny(update, func.__name__)
-        return await func(update, context, *args, **kwargs)
-    return wrapper
+async def _owner_check(update: Update) -> bool:
+    return is_owner(update.effective_user.id if update.effective_user else None)
+
+
+async def _manager_check(update: Update) -> bool:
+    return await is_manager(update.effective_user.id if update.effective_user else None)
+
+
+owner_only = _guard(_owner_check)
+owner_only.__doc__ = "Хендлер доступен только владельцу (OWNER_ID)."
+manager_only = _guard(_manager_check)
+manager_only.__doc__ = "Хендлер доступен менеджерам и владельцу."
+staff_only = _guard(is_staff)
+staff_only.__doc__ = "Хендлер доступен менеджерам и участникам админ-чата."

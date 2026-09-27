@@ -17,19 +17,16 @@ from utils.message_tricks import cleanup_messages
 from utils.access import manager_only
 from utils.access import is_owner
 
-ORDER_STATUS_CREATED = 1
-ORDER_STATUS_PROCESSING = 3
-ORDER_STATUS_READY = 4
-ORDER_STATUS_CUSTOMER_INFORMED = 2
-ORDER_STATUS_DECLINED = 6
-ORDER_STATUS_EXPIRED = 7
-ORDER_STATUS_RECEIVED = 5
+from domain.enums import OrderStatus
+
+ORDER_STATUS_CREATED = OrderStatus.CREATED
+ORDER_STATUS_PROCESSING = OrderStatus.PROCESSING
 
 VIEW_ORDERS = 1
 
 
 
-# колбэки действий над заказом, после которых список показывается заново (см. OrderStatusConfirmed/Ready)
+# колбэки действий над заказом, после которых список показывается заново (см. OrderStatusFlow)
 REFRESH_PREFIXES = ("confirm_order_", "order_ready_")
 
 
@@ -50,12 +47,12 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
         "В работе": ORDER_STATUS_PROCESSING,
         "Архив": None
     }
+    # архив — всё, что продавец уже обработал; черновики и просроченные корзины заказами не считаются
     archive_statuses = [
-        ORDER_STATUS_READY,
-        ORDER_STATUS_CUSTOMER_INFORMED,
-        ORDER_STATUS_DECLINED,
-        ORDER_STATUS_EXPIRED,
-        ORDER_STATUS_RECEIVED
+        OrderStatus.READY,
+        OrderStatus.CUSTOMER_NOTIFIED,
+        OrderStatus.DECLINED,
+        OrderStatus.RECEIVED,
     ]
     # --- определяем текущий фильтр ---
     current_filter = context.user_data.get("current_filter", ORDER_STATUS_CREATED)

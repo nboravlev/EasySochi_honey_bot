@@ -10,7 +10,8 @@ from telegram.ext import (
 from db.db_async import get_async_session
 from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import selectinload
-from datetime import datetime
+from domain.order_flow import ACTIVE_STATUSES
+from utils.timeutils import utcnow
 from handlers.RegistrationConversation import route_after_login
 
 from utils.manager_lk_collection import fetch_seller_products, get_manager_product_sizes_keyboard
@@ -194,7 +195,7 @@ async def handle_new_price_input(update: Update, context: ContextTypes.DEFAULT_T
         # Обновляем цену
         old_price = productsize.price
         productsize.price = new_price
-        productsize.updated_at = datetime.utcnow()
+        productsize.updated_at = utcnow()
         await session.commit()
 
         structured_logger.info(
@@ -261,7 +262,7 @@ async def delete_product_confirmed(update: Update, context: ContextTypes.DEFAULT
     product_id = int(query.data.split("_")[-1])
     tg_user_id = update.effective_user.id
 
-    ACTIVE_BOOKING_STATUSES = [1,2,3,4]
+    # незавершённые заказы мешают снять товар с продажи
     
         
     structured_logger.warning(
@@ -301,7 +302,7 @@ async def delete_product_confirmed(update: Update, context: ContextTypes.DEFAULT
             order
             for size in product.product_sizes
             for order in size.orders
-            if order.status_id in ACTIVE_BOOKING_STATUSES
+            if order.status_id in ACTIVE_STATUSES
         ]
 
         if active_orders:
@@ -328,7 +329,7 @@ async def delete_product_confirmed(update: Update, context: ContextTypes.DEFAULT
             .where(Product.id == product_id)
             .values(
                 is_active=False,
-                updated_at=datetime.utcnow(),
+                updated_at=utcnow(),
                 updated_by=tg_user_id
             )
         )

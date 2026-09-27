@@ -1,5 +1,4 @@
 from db.models import Order, Product, ProductSize, Size, Image
-from datetime import timedelta
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup
@@ -9,39 +8,21 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 
-from utils.escape import safe_html
 
 from utils.access import is_owner
 
 
 
-ORDER_STATUS_CREATED = 1
-ORDER_STATUS_CUSTOMER_INFORMED = 2
-ORDER_STATUS_PROCESSING = 3
-ORDER_STATUS_READY = 4
-ORDER_STATUS_PAYED = 5 #продавец нажал на кнопку, когда отдал заказ
-ORDER_STATUS_DECLINED = 6
-ORDER_STATUS_EXPIRED = 7
-ORDER_STATUS_DRAFT = 8
+from domain.enums import OrderStatus
+from services.order_texts import manager_list_card
+
+ORDER_STATUS_CREATED = OrderStatus.CREATED
+ORDER_STATUS_PROCESSING = OrderStatus.PROCESSING
 
 def prepare_owner_orders_cards(current_order: Order, current_index: int, total: int, status_filters: list = None) -> tuple[str, str | None, InlineKeyboardMarkup]:
     """Возвращает текст и клавиатуру для карточки."""
 
-    created_local = current_order.created_at + timedelta(hours=3)
-
-            # Формируем текст сообщения
-    text = (
-        f"‼️ Cтатус <b>{safe_html(current_order.status.name)}</b> ‼️\n\n"
-        f"Заказ №{current_order.id}\n"
-        f"{safe_html(current_order.product_size.product.name)} ({current_order.product_size.sizes.name} x {current_order.product_count})\n"
-        f"⏰ Создан: {created_local.strftime('%H:%M %d.%m.%Y')}\n"
-        f"💰 Стоимость: {current_order.total_price} ₽\n"
-        f"💬 Комментарий клиента: {safe_html(current_order.customer_comment) or '—'}\n"
-        f"👨: {safe_html(current_order.user.firstname or current_order.user.username)}\n"
-        f"☎️ Номер: {safe_html(current_order.user.phone_number) or 'не указан'}\n\n"
-        f"📍 {current_index+1} из {total}"
-
-    )
+    text = manager_list_card(current_order, current_index, total)
 
 
             # кнопки навигации

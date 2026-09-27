@@ -1,8 +1,8 @@
 from sqlalchemy import Column, Integer, BIGINT, Boolean, DateTime, ForeignKey, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
-from datetime import datetime
 from db.base import Base
+from utils.timeutils import utcnow
 
 class Session(Base):
     __tablename__ = "sessions"
@@ -13,9 +13,9 @@ class Session(Base):
                     ForeignKey("public.users.tg_user_id", ondelete="CASCADE"),
                     nullable = False, unique = False)
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True)
-    finished_at = Column(DateTime, default=datetime.utcnow, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=True)
+    finished_at = Column(DateTime(timezone=True), default=utcnow, nullable=True)
     last_action = Column(JSONB, nullable=True)  # последнее действие пользователя (опционально)
 
     is_active = Column(Boolean, nullable=False, server_default=text("true"))

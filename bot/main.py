@@ -1,4 +1,4 @@
-from telegram import BotCommand, Update
+from telegram import BotCommand, BotCommandScopeChat, Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -16,10 +16,14 @@ from handlers.InsertProductHandler import insert_product_conv
 from handlers.InvitationHandler import invitation
 from handlers.ManagerOrdersHandler import manager_orders
 from handlers.ManagerProductsHandler import manager_products
-from handlers.OrderStatusComplit import order_complit_handler
-from handlers.OrderStatusConfirmed import order_confirmation
-from handlers.OrderStatusCustomerButton import customer_button_handler
-from handlers.OrderStatusReady import order_ready_handler
+from handlers.InvitationConversation import tasting_rsvp
+from handlers.ManagersAdmin import managers_handlers
+from handlers.OrderStatusFlow import (
+    customer_button_handler,
+    order_complit_handler,
+    order_confirmation,
+    order_ready_handler,
+)
 from handlers.ProductConfirmHandler import confirm_handler
 from handlers.ProductRedoHandler import redo_handler
 from handlers.RegistrationConversation import handle_honey_try, handle_show_map, route_after_login
@@ -27,7 +31,21 @@ from handlers.RegistrationHandler import registration_conversation
 from handlers.SelectProductHandler import select_product_conv
 from handlers.ShowInfoHandler import info_callback_handler, info_command
 from handlers.UserSendProblemHandler import problem_handler
+from db.db_async import get_async_session
+from services.orders import expire_stale_drafts
+from services.users import bootstrap_managers
 from utils.logging_config import bind_update_context, setup_logging, structured_logger
+
+USER_COMMANDS = [
+    BotCommand("start", "🔄 Перезапустить бот"),
+    BotCommand("help", "⚠️ Помощь"),
+    BotCommand("info", "📌 Инструкция"),
+    BotCommand("cancel", "⛔ Отмена"),
+]
+OWNER_COMMANDS = USER_COMMANDS + [
+    BotCommand("managers", "👥 Менеджеры"),
+    BotCommand("manager_add", "➕ Назначить менеджера"),
+]
 
 
 async def bind_log_context(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -55,16 +73,37 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def expire_drafts_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Раз в час закрывает брошенные черновики заказов (покупателю ничего не пишем)."""
+    async with get_async_session() as session:
+        expired = await expire_stale_drafts(session)
+        await session.commit()
+    if expired:
+        structured_logger.info("Stale drafts expired", action="drafts_expired", context={"count": expired})
+
+
 async def post_init(application: Application) -> None:
-    # Настройка меню команд (синяя плашка)
-    await application.bot.set_my_commands([
-        BotCommand("start", "🔄 Перезапустить бот"),
-        BotCommand("help", "⚠️ Помощь"),
-        BotCommand("info", "📌 Инструкция"),
-        BotCommand("cancel", "⛔ Отмена"),
-    ])
+    settings = get_settings()
+
+    # первый запуск: MANAGER_LIST из .env → users.role_id (дальше менеджеров назначает владелец)
+    async with get_async_session() as session:
+        promoted = await bootstrap_managers(session, settings.manager_ids - {settings.owner_id})
+        await session.commit()
+    if promoted:
+        structured_logger.info("Managers bootstrapped from MANAGER_LIST", action="managers_bootstrap",
+                               context={"count": promoted})
+
+    # Настройка меню команд (синяя плашка); владельцу — ещё и управление менеджерами
+    await application.bot.set_my_commands(USER_COMMANDS)
+    if settings.owner_id:
+        try:
+            await application.bot.set_my_commands(OWNER_COMMANDS, scope=BotCommandScopeChat(settings.owner_id))
+        except Exception as exc:  # владелец ещё не писал боту
+            structured_logger.warning("Owner commands not set", action="owner_commands_failed",
+                                      context={"error": str(exc)})
 
     application.job_queue.run_repeating(check_db, interval=30 * 60, first=10)
+    application.job_queue.run_repeating(expire_drafts_job, interval=60 * 60, first=60)
 
 
 def build_application() -> Application:
@@ -95,6 +134,9 @@ def build_application() -> Application:
         CallbackQueryHandler(customer_button_handler, pattern=r"^pickup_(today|tomorrow|later)_\d+$"), group=0
     )
     app.add_handler(CallbackQueryHandler(order_complit_handler, pattern=r"^order_complit_\d+$"), group=0)
+    app.add_handler(CallbackQueryHandler(tasting_rsvp, pattern=r"^tasting_(yes|no)_\d+$"), group=0)
+    for handler in managers_handlers:
+        app.add_handler(handler, group=0)
     app.add_handler(problem_handler, group=0)
     app.add_handler(admin_replay_handler, group=0)
 

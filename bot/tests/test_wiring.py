@@ -4,7 +4,7 @@ from pathlib import Path
 
 from telegram.ext import BaseHandler, ConversationHandler
 
-from utils.constants import OrderStatus
+from domain.enums import OrderStatus
 
 MIGRATION = Path(__file__).parents[1] / "alembic/versions/b1c2d3e4f5a6_money_precision_and_reference_data.py"
 

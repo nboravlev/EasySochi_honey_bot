@@ -35,8 +35,8 @@ def test_safe_html(raw, expected):
     assert safe_html(raw) == expected
 
 
-def test_order_caption_escapes_user_input():
-    from handlers.SelectProductConversation import build_order_caption
+def test_draft_card_escapes_user_input():
+    from services.order_texts import draft_card
 
     order = SimpleNamespace(
         product_count=2,
@@ -47,7 +47,7 @@ def test_order_caption_escapes_user_input():
             sizes=SimpleNamespace(name=Decimal("1.0"), package=SimpleNamespace(name="Банка")),
         ),
     )
-    caption = build_order_caption(order)
+    caption = draft_card(order)
     assert "<b>Мёд &lt;липовый&gt;</b>" in caption
     assert "Комментарий: &lt;script&gt;&amp;" in caption
     assert "Количество: 2" in caption

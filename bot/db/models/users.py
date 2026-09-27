@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, text, DateTime, Boolean, BIGINT, ForeignKey
 from sqlalchemy.orm import relationship, validates
-from datetime import datetime
 from db.base import Base
+from utils.timeutils import utcnow
 import re
 
 class User(Base):
@@ -13,8 +13,8 @@ class User(Base):
     username = Column(String(50), nullable=True, unique=False)
     firstname = Column(String(50), nullable=True, unique=False)
     phone_number = Column(String(20), nullable=True, unique=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     # New columns
     tg_user_id = Column(BIGINT, nullable=False, unique=True)  # Telegram user ID
@@ -22,6 +22,9 @@ class User(Base):
     is_bot = Column(Boolean, nullable=False, server_default=text("false"))
     source_id = Column(Integer,ForeignKey("public.sources.id", ondelete="SET NULL"),
     nullable=True)
+    # Роль для доступа: 1 — пользователь, 4 — менеджер (domain.enums.Role). Владелец — OWNER_ID в .env.
+    role_id = Column(Integer, ForeignKey("public.roles.id", ondelete="RESTRICT"),
+                     nullable=False, server_default=text("1"))
 
     # Bidirectional relationship
     sessions = relationship("Session",back_populates="user")

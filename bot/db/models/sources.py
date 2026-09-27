@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, text, DateTime, Boolean, BIGINT
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from db.base import Base
+from utils.timeutils import utcnow
 
 class Source(Base):
     __tablename__ = "sources"
@@ -12,8 +12,8 @@ class Source(Base):
     tg_user_id = Column(BIGINT, nullable=True, unique=True)
     suffix = Column(String(50), nullable=False, unique=True)
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     # Bidirectional relationship
     users = relationship("User", back_populates = "source")
