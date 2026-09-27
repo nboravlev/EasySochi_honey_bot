@@ -8,6 +8,9 @@ from handlers.UserSendProblemConversation import (
 )
 
 problem_handler = ConversationHandler(
+    # состояние диалога сохраняется в PicklePersistence и переживает перезапуск бота
+    name="user_problem",
+    persistent=True,
     entry_points=[CommandHandler("help", start_problem)],
     states={
         SEND_PROBLEM: [

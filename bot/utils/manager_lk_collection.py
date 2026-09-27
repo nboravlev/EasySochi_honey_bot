@@ -151,9 +151,10 @@ async def get_manager_product_sizes_keyboard(product_id: int) -> tuple[list[dict
     return sizes, InlineKeyboardMarkup(keyboard), image_file_id
 
 
-async def fetch_seller_orders(user_tg_id: int, is_admin: bool, status_filter: list = None):
+async def fetch_seller_orders(user_tg_id: int, is_admin: bool, status_filter: list = None) -> list[int]:
     """
-    Возвращает заказы продавца с возможностью фильтрации по статусу.
+    Возвращает ID заказов продавца (по дате создания) с возможностью фильтрации по статусу.
+    Карточка каждого заказа читается из БД при показе — статус всегда актуален.
     
     :param user_tg_id: ID продавца
     :param is_admin: True, если админ, False — обычный продавец
@@ -161,12 +162,7 @@ async def fetch_seller_orders(user_tg_id: int, is_admin: bool, status_filter: li
     """
     async with get_async_session() as session:
         is_admin = is_owner(user_tg_id)
-        stmt = select(Order).options(
-            selectinload(Order.product_size).selectinload(ProductSize.product),
-            selectinload(Order.product_size).selectinload(ProductSize.sizes),
-            selectinload(Order.user),
-            selectinload(Order.status)
-        ).order_by(Order.created_at.asc())
+        stmt = select(Order.id).order_by(Order.created_at.asc())
 
         # фильтр по статусу
         if status_filter:
@@ -179,5 +175,4 @@ async def fetch_seller_orders(user_tg_id: int, is_admin: bool, status_filter: li
                     .where(Product.created_by == user_tg_id)
 
         result = await session.execute(stmt)
-        orders = result.scalars().all()
-        return orders
+        return list(result.scalars().all())

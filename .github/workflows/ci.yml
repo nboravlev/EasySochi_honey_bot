@@ -65,8 +65,8 @@ jobs:
         run: alembic upgrade head
       - name: Last migration is reversible
         run: alembic downgrade -1 && alembic upgrade head
-      - name: Service tests on real PostgreSQL
-        run: pytest -q tests/integration
+      - name: Service and end-to-end tests on real PostgreSQL
+        run: pytest -q tests/integration tests/e2e
         env:
           RUN_DB_TESTS: "1"
 
@@ -75,6 +75,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Shell scripts (ops/, entrypoint)
+        run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable -x -e SC1091 ops/*.sh bot/entrypoint.sh
       - run: docker build -t honey-bot ./bot
       - run: docker build -t honey-db ./db
       - run: docker build -t honey-log-viewer ./log_viewer

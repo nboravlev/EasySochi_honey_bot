@@ -5,7 +5,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import Order, ProductSize, Session, Size
+from db.models import Order, ProductSize, Session, Size, User
 from domain.enums import OrderStatus, Role
 from domain.order_flow import check_transition
 from utils.constants import DRAFT_TTL_HOURS, MAX_COMMENT_LENGTH, MAX_PRODUCT_COUNT
@@ -57,6 +57,16 @@ class CommentTooLong(OrderError):
 async def get_order(session: AsyncSession, order_id: int) -> Order | None:
     result = await session.execute(select(Order).options(*ORDER_DETAILS).where(Order.id == order_id))
     return result.scalar_one_or_none()
+
+
+async def registered_user_id(session: AsyncSession, tg_user_id: int) -> int | None:
+    """tg_user_id, если человек есть в users, иначе None.
+
+    Кнопки в админ-чате может нажать участник, ни разу не запускавший бота: ссылка orders.manager_id
+    на него нарушила бы внешний ключ, и подтверждение заказа падало бы.
+    """
+    found = await session.scalar(select(User.tg_user_id).where(User.tg_user_id == tg_user_id))
+    return found
 
 
 async def get_customer_draft(session: AsyncSession, order_id: int, tg_user_id: int) -> Order | None:

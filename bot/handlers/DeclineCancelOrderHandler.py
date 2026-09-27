@@ -8,6 +8,9 @@ from handlers.DeclineCancelOrderConversation import (
 )
 
 conv_decline_cancel = ConversationHandler(
+    # состояние диалога сохраняется в PicklePersistence и переживает перезапуск бота
+    name="decline_order",
+    persistent=True,
     entry_points=[CallbackQueryHandler(booking_decline_callback, pattern=r"^decline_order_\d+$")],
     states={
         DECLINE_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, booking_decline_reason)]

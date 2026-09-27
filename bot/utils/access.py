@@ -53,7 +53,7 @@ async def _deny(update: Update, handler_name: str):
     if update.callback_query:
         await update.callback_query.answer(DENIED_TEXT, show_alert=True)
     elif update.effective_message:
-        await update.effective_message.reply_text(DENIED_TEXT)
+        await update.effective_chat.send_message(DENIED_TEXT)
     return ConversationHandler.END
 
 

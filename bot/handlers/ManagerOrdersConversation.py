@@ -10,6 +10,8 @@ from telegram.ext import (
 from handlers.RegistrationConversation import route_after_login
 
 from utils.manager_lk_collection import fetch_seller_orders, prepare_owner_orders_cards
+from db.db_async import get_async_session
+from services.orders import get_order
 from utils.message_tricks import cleanup_messages
 
 
@@ -120,7 +122,7 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer()
 
     # --- показываем карточку ---
-    orders = context.user_data.get("seller_orders", [])
+    orders = context.user_data.get("seller_orders", [])  # ID заказов
     if not orders:
         text = "❌ Заказы не найдены."
         # оставляем фильтры и выход в меню, иначе из пустого списка некуда нажать
@@ -133,7 +135,7 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
             try:
                 await query.edit_message_text(text, reply_markup=markup)
             except Exception:
-                await query.message.reply_text(text, reply_markup=markup)
+                await update.effective_chat.send_message(text, reply_markup=markup)
         else:
             await context.bot.send_message(update.effective_chat.id, text, reply_markup=markup)
         return VIEW_ORDERS
@@ -141,7 +143,12 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
     current_index = context.user_data.get("current_index", 0)
     total = len(orders)
     current_index = max(0, min(current_index, total - 1))
-    current_order = orders[current_index]
+    async with get_async_session() as session:
+        current_order = await get_order(session, orders[current_index])
+    if current_order is None:  # заказ удалён — перечитываем список при следующем открытии
+        context.user_data["seller_orders"] = []
+        await update.effective_chat.send_message("Заказ больше не найден. Откройте «Мои заказы» заново.")
+        return VIEW_ORDERS
 
     text, markup = prepare_owner_orders_cards(current_order, current_index, total, status_filters)
 
@@ -150,7 +157,7 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
         try:
             await query.edit_message_text(text=text, reply_markup=markup, parse_mode="HTML")
         except Exception:
-            await query.message.reply_text(text, reply_markup=markup, parse_mode="HTML")
+            await update.effective_chat.send_message(text, reply_markup=markup, parse_mode="HTML")
     else:
         await context.bot.send_message(update.effective_chat.id, text, reply_markup=markup, parse_mode="HTML")
 

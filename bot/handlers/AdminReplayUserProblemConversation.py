@@ -21,7 +21,7 @@ async def reply_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # сохраняем target_user_id в context.user_data админа
     context.user_data["reply_to_user"] = target_user_id
 
-    await query.message.reply_text(
+    await update.effective_chat.send_message(
         f"✍️ Введите сообщение для пользователя {target_user_id}:"
     )
 

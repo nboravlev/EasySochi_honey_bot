@@ -21,4 +21,6 @@ markers = [
 filterwarnings = [
     # per_message=False в диалогах с CallbackQueryHandler — осознанная настройка, не шум тестов
     "ignore:If 'per_message=False':telegram.warnings.PTBUserWarning",
+    # сквозные тесты не запускают JobQueue (таймауты диалогов в них не проверяются)
+    "ignore:Ignoring `conversation_timeout`:telegram.warnings.PTBUserWarning",
 ]

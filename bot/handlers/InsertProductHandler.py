@@ -17,6 +17,9 @@ from handlers.InsertProductConversation import (
 )
 
 insert_product_conv = ConversationHandler(
+    # состояние диалога сохраняется в PicklePersistence и переживает перезапуск бота
+    name="insert_product",
+    persistent=True,
     entry_points=[
         CommandHandler("honey_add", start_add_object),
         CallbackQueryHandler(start_add_object, pattern="^honey_add$")

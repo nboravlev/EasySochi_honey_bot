@@ -16,6 +16,9 @@ from handlers.SelectProductConversation import (
 )
 
 select_product_conv = ConversationHandler(
+    # состояние диалога сохраняется в PicklePersistence и переживает перезапуск бота
+    name="select_product",
+    persistent=True,
     entry_points=[CallbackQueryHandler(start_select_product, pattern="^honey_buy$"),
                   CommandHandler("honey_buy", start_select_product),
                   CallbackQueryHandler(handle_size_selection, pattern=r"^select_size_\d+$")],

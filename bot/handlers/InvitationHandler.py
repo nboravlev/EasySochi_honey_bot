@@ -10,6 +10,9 @@ from handlers.InvitationConversation import (
 )
 
 invitation = ConversationHandler(
+    # состояние диалога сохраняется в PicklePersistence и переживает перезапуск бота
+    name="tasting_invitation",
+    persistent=True,
     entry_points=[CallbackQueryHandler(honey_invite_start, pattern="^honey_invite$")],
     states={
             ASK_DATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, honey_invite_ask_date)],

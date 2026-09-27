@@ -49,7 +49,7 @@ async def handle_manager_products(update: Update, context: ContextTypes.DEFAULT_
         products = await fetch_seller_products(tg_user_id,is_admin)
 
         if not products:
-            await update.effective_message.reply_text("❌ Ваших товаров не найдено в базе.")
+            await update.effective_chat.send_message("❌ Ваших товаров не найдено в базе.")
             return ConversationHandler.END
 
         for product in products:
@@ -60,14 +60,14 @@ async def handle_manager_products(update: Update, context: ContextTypes.DEFAULT_
                        f"{safe_html(product.description) or 'Без описания'}")
 
             if image_file_id:
-                sent = await update.effective_message.reply_photo(
+                sent = await update.effective_chat.send_photo(
                     photo=image_file_id,
                     caption=caption,
                     reply_markup=keyboard_markup,
                     parse_mode="HTML"
                 )
             else:
-                sent = await update.effective_message.reply_text(
+                sent = await update.effective_chat.send_message(
                     caption,
                     reply_markup=keyboard_markup,
                     parse_mode="HTML"
@@ -155,7 +155,7 @@ async def handle_edit_price_start(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
-    await query.message.edit_text(
+    await query.edit_message_text(
         "💬 Введите новую стоимость в рублях (только число):",
         reply_markup=None
     )
@@ -248,7 +248,7 @@ async def confirm_delete_product(update: Update, context: ContextTypes.DEFAULT_T
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await query.message.reply_text(
+    await update.effective_chat.send_message(
         f"Вы уверены, что хотите удалить товар №{product_id}?",
         reply_markup=reply_markup
     )
@@ -283,7 +283,7 @@ async def delete_product_confirmed(update: Update, context: ContextTypes.DEFAULT
         product = result.scalar_one_or_none()
 
         if not product:
-            await update.callback_query.message.reply_text("❌ Товар не найден.")
+            await update.effective_chat.send_message("❌ Товар не найден.")
             return VIEW_PRODUCTS
 
         # снять с продажи можно только свой товар (владелец — любой)
@@ -294,7 +294,7 @@ async def delete_product_confirmed(update: Update, context: ContextTypes.DEFAULT
                 action="unauthorized_product_delete_attempt",
                 context={'product_id': product_id}
             )
-            await update.callback_query.message.reply_text("🚫 У вас нет прав снимать этот товар с продажи.")
+            await update.effective_chat.send_message("🚫 У вас нет прав снимать этот товар с продажи.")
             return VIEW_PRODUCTS
 
         # Собираем все активные заказы через вложенные циклы
@@ -316,7 +316,7 @@ async def delete_product_confirmed(update: Update, context: ContextTypes.DEFAULT
                     'booking_ids': [b.id for b in active_orders]
                 }
             )
-            msg = await update.callback_query.message.reply_text(
+            msg = await update.effective_chat.send_message(
                 "🚫 На данном товаре есть активные заказы. "
                 "Сообщите администратору об этой ситуации. /help"
             )
@@ -344,7 +344,7 @@ async def delete_product_confirmed(update: Update, context: ContextTypes.DEFAULT
                 'deletion_type': 'soft_delete'
             }
         )
-        await update.callback_query.message.edit_text("❌ Товар успешно удалён.",
+        await update.callback_query.edit_message_text("❌ Товар успешно удалён.",
                                                         reply_markup=None)
         await session.commit()
         return VIEW_PRODUCTS

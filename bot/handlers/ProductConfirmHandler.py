@@ -53,15 +53,15 @@ async def confirm_product_callback(update: Update, context: ContextTypes.DEFAULT
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         # Отправка / редактирование сообщения
-        if message.text:
+        if getattr(message, "text", None):
 
              await query.edit_message_text(confirmation_text, reply_markup=reply_markup)
-        elif message.caption:
+        elif getattr(message, "caption", None):
 
              await query.edit_message_caption(caption=confirmation_text, reply_markup=reply_markup)
         else:
 
-             await message.reply_text(confirmation_text, reply_markup=reply_markup)
+             await update.effective_chat.send_message(confirmation_text, reply_markup=reply_markup)
 
 
     except Exception as e:

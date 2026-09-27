@@ -8,7 +8,7 @@ async def send_message(update: Update, text: str, reply_markup=None, **kwargs):
     if update.message:
         return await update.message.reply_text(text, reply_markup=reply_markup, **kwargs)
     elif update.callback_query:
-        return await update.callback_query.message.reply_text(text, reply_markup=reply_markup, **kwargs)
+        return await update.effective_chat.send_message(text, reply_markup=reply_markup, **kwargs)
 
 async def cleanup_messages(context: ContextTypes.DEFAULT_TYPE):
     """
