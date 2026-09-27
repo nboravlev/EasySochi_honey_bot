@@ -8,8 +8,8 @@ from sqlalchemy import (
     text
 )
 from db.base import Base
+from utils.timeutils import utcnow
 from sqlalchemy.orm import relationship
-from datetime import datetime
 
 
 class Image(Base):
@@ -23,8 +23,8 @@ class Image(Base):
     tg_file_id = Column(String, nullable=False)  # идентификатор файла в Telegram
     is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))  # включено в выдачу
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     # Optional: связь с Apartment
     product = relationship("Product", back_populates="images")

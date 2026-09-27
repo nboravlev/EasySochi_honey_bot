@@ -1,3 +1,7 @@
+# Автоматическая проверка кода в GitHub Actions (на серверах GitHub, не на вашем сервере).
+# Запускается на каждый pull request и push в main: ruff + юнит-тесты, миграции и тесты
+# на временной PostgreSQL, сборка Docker-образов. Ничего не выкатывает.
+# Подробная инструкция: .github/CI.md
 name: CI
 
 on:
@@ -26,7 +30,7 @@ jobs:
       - run: pytest -q
 
   migrations:
-    name: Alembic on empty PostGIS
+    name: Migrations & DB integration tests
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -53,12 +57,18 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: bot/requirements.txt
-      - run: pip install -r requirements.txt
+          cache-dependency-path: |
+            bot/requirements.txt
+            bot/requirements-dev.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Upgrade from scratch
         run: alembic upgrade head
       - name: Last migration is reversible
         run: alembic downgrade -1 && alembic upgrade head
+      - name: Service tests on real PostgreSQL
+        run: pytest -q tests/integration
+        env:
+          RUN_DB_TESTS: "1"
 
   docker:
     name: Docker images build

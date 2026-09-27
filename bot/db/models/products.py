@@ -12,8 +12,8 @@ from sqlalchemy import (
     BIGINT
 )
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from db.base import Base
+from utils.timeutils import utcnow
 
 
 
@@ -27,8 +27,8 @@ class Product(Base):
     name = Column(String(255), nullable=False)
     type_id = Column(Integer, ForeignKey("public.product_types.id", ondelete="RESTRICT"), nullable=False)
     description = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     created_by = Column(BIGINT, 
                     ForeignKey("public.users.tg_user_id", ondelete="CASCADE"),
                     nullable = False, unique = False)

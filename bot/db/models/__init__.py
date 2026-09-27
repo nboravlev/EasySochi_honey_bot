@@ -19,6 +19,7 @@ from .delivery_intervals import DeliveryInterval
 from .delivery_zones import DeliveryZone
 from .delivery_statuses import DeliveryStatus
 from .order_delivery import OrderDelivery
+from .tasting import TastingEvent, TastingSignup
 
 
 __all__ = ["Source","User", "Role", "Session",
@@ -26,5 +27,6 @@ __all__ = ["Source","User", "Role", "Session",
     "Package", 
     "ProductSize", "Image","ProductsizeImage","OrderPackage",
     "OrderStatus", "Order",
-    "DeliveryInterval","DeliveryZone","OrderDelivery","DeliveryStatus"
+    "DeliveryInterval","DeliveryZone","OrderDelivery","DeliveryStatus",
+    "TastingEvent", "TastingSignup",
 ]

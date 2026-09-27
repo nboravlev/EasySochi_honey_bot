@@ -44,7 +44,8 @@ class Settings(_Base):
     bot_token: str
     admin_chat_id: int
     owner_id: int | None = None
-    manager_list: str = ""       # «111,222» или «[111, 222]»
+    # «111,222» или «[111, 222]»; только первичное заполнение users.role_id (services.users.bootstrap_managers)
+    manager_list: str = ""
     seller_contact: str | None = None
     db_monitor_chat_id: int = -1002843679066
 
@@ -53,7 +54,7 @@ class Settings(_Base):
 
     @cached_property
     def manager_ids(self) -> frozenset[int]:
-        """Менеджеры: MANAGER_LIST плюс владелец."""
+        """MANAGER_LIST плюс владелец — для первого запуска. Права проверяются по users.role_id."""
         ids = {int(part.strip(" []")) for part in self.manager_list.split(",") if part.strip(" []")}
         if self.owner_id:
             ids.add(self.owner_id)

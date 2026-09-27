@@ -11,8 +11,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
-from datetime import datetime
 from db.base import Base
+from utils.timeutils import utcnow
 
 
 class OrderDelivery(Base):
@@ -43,7 +43,7 @@ class OrderDelivery(Base):
         nullable=True,
     )
 
-    delivery_date = Column(DateTime, nullable=False)
+    delivery_date = Column(DateTime(timezone=True), nullable=False)
 
     delivery_interval_id = Column(
         Integer,
@@ -61,8 +61,8 @@ class OrderDelivery(Base):
         nullable=True,
     )
 
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
     # связи
     order = relationship("Order", back_populates="delivery", lazy="joined")

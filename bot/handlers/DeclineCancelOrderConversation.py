@@ -1,164 +1,85 @@
-from telegram import (
-    Update,
-    ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
-    KeyboardButton
-)
-from telegram.ext import (
-    ConversationHandler,
-    ContextTypes
-)
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+"""Отклонение заказа продавцом: кнопка «Отклонить» → причина → уведомление покупателю."""
+from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram.ext import ContextTypes, ConversationHandler
 
-from datetime import datetime, timedelta
 from db.db_async import get_async_session
-from db.models import Order, ProductSize, Size
+from domain.order_flow import InvalidTransition
+from services import order_texts
+from services.orders import MAX_REASON_LENGTH, decline, get_order
+from utils.access import staff_only
 from utils.escape import safe_html
+from utils.logging_config import structured_logger
 from utils.message_tricks import cleanup_messages
 
-
-
-from utils.access import staff_only
-from utils.constants import OrderStatus
-from config import get_settings
-
-ADMIN_CHAT_ID = get_settings().admin_chat_id
-
-
 DECLINE_REASON = 1
-MAX_REASON_LENGTH = 255  # orders.manager_comment VARCHAR(255)
-
-ORDER_STATUS_DECLINED = OrderStatus.DECLINED
-# отклонить можно только незавершённый заказ (прежний чёрный список [2,5,6,7,8,9] в виде белого)
-DECLINABLE_STATUSES = (OrderStatus.CREATED, OrderStatus.PROCESSING, OrderStatus.READY)
+SKIP_REASON_BUTTON = "отправка причины"
 
 
 @staff_only
 async def booking_decline_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     query = update.callback_query
     await query.answer()
 
-    # Разбор данных из callback
-    data_parts = query.data.split("_")
-    order_id = int(data_parts[-1])  # ID брони
-
-    context.user_data["decline_order_id"] = order_id
+    context.user_data["decline_order_id"] = int(query.data.rsplit("_", 1)[-1])
     await cleanup_messages(context)
-    # 2) Убираем inline-кнопки из того сообщения, где была нажата кнопка (owner message)
     try:
-        # Это удалит клавиатуру под исходным сообщением
+        # убираем кнопки под карточкой, где нажали «Отклонить»
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
         pass  # клавиатура уже снята
 
-    # Запрашиваем причину
-    keyboard = [[KeyboardButton("отправка причины")]]
     await query.message.reply_text(
-        "❌ Укажите причину отклонения заявки (макс. 255 символов):",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+        f"❌ Укажите причину отклонения заявки (макс. {MAX_REASON_LENGTH} символов):",
+        reply_markup=ReplyKeyboardMarkup(
+            [[KeyboardButton(SKIP_REASON_BUTTON)]], resize_keyboard=True, one_time_keyboard=True
+        ),
     )
-
     return DECLINE_REASON
 
 
 async def booking_decline_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reason = update.message.text.strip()
-    if not reason or reason.lower() == "отправка причины":
-        reason = "Причина не указана"
-    else:
-        # сообщения ниже уходят без parse_mode — храним исходный текст, без HTML-сущностей
-        reason = reason[:MAX_REASON_LENGTH]
-
-    order_id = context.user_data.get("decline_order_id")
-
+    text = update.message.text.strip()
+    reason = "" if text.lower() == SKIP_REASON_BUTTON else text
+    order_id = context.user_data.pop("decline_order_id", None)
 
     async with get_async_session() as session:
-
-        # Загружаем бронь с зависимостями
-        result = await session.execute(
-            select(Order)
-            .options(
-                    selectinload(Order.product_size).selectinload(ProductSize.product),
-                    selectinload(Order.product_size).selectinload(ProductSize.sizes).selectinload(Size.package),
-                    selectinload(Order.user),  # гость
-                    selectinload(Order.status)
-            )
-            .where(Order.id == order_id)
-        )
-        order = result.scalar_one_or_none()
-        if not order:
+        order = await get_order(session, order_id) if order_id else None
+        if order is None:
             await update.message.reply_text("❌ Заказ не найден.", reply_markup=ReplyKeyboardRemove())
             return ConversationHandler.END
-
-        if order.status_id not in DECLINABLE_STATUSES:
+        try:
+            decline(order, reason, actor_id=update.effective_user.id)
+        except InvalidTransition:
             await update.message.reply_text(
                 f"⛔ Нельзя отклонить заказ в статусе <b>{safe_html(order.status.name)}</b>.",
                 reply_markup=ReplyKeyboardRemove(),
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
             return ConversationHandler.END
-          # Обновляем статус и причину
-        order.status_id = ORDER_STATUS_DECLINED
-        order.updated_at = datetime.utcnow()
-        order.manager_comment = reason
         await session.commit()
 
-    # Определяем инициатора
-    initiator_tg_id = update.effective_user.id
-    guest_tg_id = order.tg_user_id
-    owner_tg_id = order.product_size.product.created_by
-
-    
-    created_local = order.created_at + timedelta(hours=3)
-    if initiator_tg_id == guest_tg_id:
-        # Отмену делает гость → уведомляем владельца
+    structured_logger.info(
+        "Order declined", order_id=order.id, action="order_declined",
+        context={"customer_id": order.tg_user_id, "reason_length": len(reason)},
+    )
+    try:
         await context.bot.send_message(
-            chat_id=owner_tg_id,
-            text=(
-                f"❌ Гость отменил заказ №{order.id}\n"
-                f"⏰ Создан: {created_local.strftime('%H:%M %d.%m.%Y')}\n"
-                f"{order.product_size.product.name} ({order.product_size.sizes.name}кг х {order.product_count})\n"
-                f"Cтоимость: {order.total_price}₽ \n"
-                f"Причина: {reason}"
-            )
-        )
-        confirm_text = "✅ Вы отменили заказ, владелец уведомлён."
-    else:
-        # Отмену делает владелец → уведомляем гостя
-        await context.bot.send_message(
-            chat_id=guest_tg_id,
-            text=(
-                f"❌ Ваше заказ №{order.id} отклонен продавцом.\n"
-                f"{order.product_size.product.name} ({order.product_size.sizes.name}кг х {order.product_count})\n"
-                f"⏰ Создан: {created_local.strftime('%H:%M %d.%m.%Y')}\n"
-                f"Cтоимость: {order.total_price}₽\n"
-                f"Причина: {reason}\n\n"
-                f"Хотите выбрать другой товар?\n"
-                "👉 /honey_buy"
-            )
+            chat_id=order.tg_user_id, text=order_texts.customer_declined(order), parse_mode="HTML"
         )
         confirm_text = "‼️ Заказ отклонен, гость уведомлен."
+    except Exception as exc:
+        structured_logger.warning(
+            "Failed to notify customer about decline", order_id=order.id,
+            action="order_notify_failed", context={"error": str(exc)},
+        )
+        confirm_text = "‼️ Заказ отклонен, но гость не получил уведомление (возможно, заблокировал бота)."
 
     await update.message.reply_text(confirm_text, reply_markup=ReplyKeyboardRemove())
-
-    # Чистим временные данные
-    context.user_data.pop("decline_order_id", None)
-
-
     return ConversationHandler.END
 
 
-# ✅ Only one function: booking confirmation
-
-
-
 async def cancel_decline(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Cancel the decline process"""
-    await update.message.reply_text(
-        "Отмена заявки отменена.",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    """Передумали отклонять."""
+    await update.message.reply_text("Отмена заявки отменена.", reply_markup=ReplyKeyboardRemove())
     context.user_data.pop("decline_order_id", None)
     return ConversationHandler.END

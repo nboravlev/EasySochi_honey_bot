@@ -7,26 +7,19 @@ from telegram.ext import (
     ConversationHandler
 )
 
-from datetime import datetime
-
-
-
-
-from utils.user_session_lastorder import (
-    get_user_by_tg_id, 
-    create_user, 
-    create_session, 
-    get_actual_session_by_tg_id)
-
-from utils.get_orders_products_statistics import get_manager_stats_message
+from db.db_async import get_async_session
+from services import tasting
+from services.stats import manager_stats_message
+from utils.timeutils import utcnow
+from utils.user_session_lastorder import create_user, get_user_by_tg_id
 
 from utils.escape import safe_html
 from utils.message_tricks import add_message_to_cleanup, cleanup_messages, send_message
 
 from utils.logging_config import structured_logger
 
-from utils.access import is_manager
-from utils.constants import APIARY_ADDRESS, Role
+from utils.access import is_manager, is_owner
+from utils.constants import APIARY_ADDRESS, APIARY_LOCATION
 
 MAX_FIRSTNAME_LENGTH = 50  # users.firstname VARCHAR(50)
 
@@ -65,8 +58,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id=tg_user.id,
             action="telegram_start_command",
             context={
-                'username': tg_user.username,
-                'first_name': tg_user.first_name,
+                'has_username': bool(tg_user.username),
                 'language_code': tg_user.language_code,
                 'is_bot': tg_user.is_bot
             }
@@ -74,14 +66,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = tg_user.id
         # Check if user already exists
         user = await get_user_by_tg_id(user_id)
-        if user is None:
+        # без имени — строка создана назначением в менеджеры до первого /start: проводим регистрацию
+        if user is None or not user.firstname:
 
             # New user - start registration
             structured_logger.info(
                 "New user starting registration process",
                 user_id=tg_user.id,
                 action="registration_start",
-                context={'tg_username': tg_user.username}
+                context={'has_username': bool(tg_user.username)}
             )
             return await begin_registration(update, context, tg_user)
         else:
@@ -92,7 +85,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 action="main_menu_access",
                 context={
                     'user_db_id': user.id,
-                    'user_name': user.firstname,
+                    'has_name': bool(user.firstname),
                     'last_login': user.updated_at.isoformat() if user.updated_at else None
                 }
             )
@@ -125,15 +118,14 @@ async def begin_registration(update: Update, context: ContextTypes.DEFAULT_TYPE,
         context.user_data.update({
             "tg_user": tg_user,
             "registration_step": "name",
-            "registration_start_time": datetime.utcnow()
+            "registration_start_time": utcnow()
         })
         structured_logger.info(
             "Registration process initiated",
             user_id=user_id,
             action="registration_begin",
             context={
-                'tg_username': tg_user.username,
-                'tg_first_name': tg_user.first_name,
+                'has_username': bool(tg_user.username),
                 'has_profile_photo': tg_user.has_profile_photo if hasattr(tg_user, 'has_profile_photo') else None
             }
         )
@@ -272,7 +264,7 @@ async def handle_phone_registration(update: Update, context: ContextTypes.DEFAUL
         # Calculate registration duration
         if registration_start:
             #start_time = datetime.fromisoformat(registration_start)
-            duration = (datetime.utcnow() - registration_start).total_seconds()
+            duration = (utcnow() - registration_start).total_seconds()
         else:
             duration = None
             
@@ -297,7 +289,7 @@ async def handle_phone_registration(update: Update, context: ContextTypes.DEFAUL
             action="registration_completed",
             context={
                 'new_user_db_id': user.id,
-                'user_name': user.firstname,
+                'has_name': bool(user.firstname),
                 'has_phone': user.phone_number is not None,
                 'registration_duration': duration
             }
@@ -328,7 +320,7 @@ async def handle_phone_registration(update: Update, context: ContextTypes.DEFAUL
         return ConversationHandler.END
 
 async def route_after_login(update: Update, context: ContextTypes.DEFAULT_TYPE, user = None):
-    """Роутинг после регистрации или входа с созданием сессии"""
+    """Роутинг после регистрации или входа: меню менеджера или покупателя (роль — users.role_id)."""
     await cleanup_messages(context)
     if update.callback_query:
         try:
@@ -343,14 +335,9 @@ async def route_after_login(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             return ConversationHandler.END
 
     try:
-        if is_manager(user.tg_user_id):
-            session = await create_session(user.tg_user_id, Role.MANAGER)
-            context.user_data["session_id"] = session.id
+        if await is_manager(user.tg_user_id):
             return await show_manager_menu(update, context, user)
-        else:
-            return await show_customer_menu(update, context, user)
-
-
+        return await show_customer_menu(update, context, user)
     except Exception as e:
         structured_logger.error(
             f"Error in handle route_after_logging: {str(e)}",
@@ -364,7 +351,11 @@ async def route_after_login(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
 
 async def show_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    stats_text = await get_manager_stats_message(user.tg_user_id)
+    # владелец видит статистику по всем товарам, менеджер — по своим
+    async with get_async_session() as session:
+        stats_text = await manager_stats_message(
+            session, seller_id=None if is_owner(user.tg_user_id) else user.tg_user_id
+        )
     await cleanup_messages(context)
     keyboard = [
         [InlineKeyboardButton("✍🏻Добавить мед", callback_data="honey_add"),
@@ -372,8 +363,10 @@ async def show_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         [InlineKeyboardButton("📨 Мои заказы", callback_data=f"honey_orders_{user.tg_user_id}"),
         InlineKeyboardButton("📣 Приглашение ", callback_data="honey_invite")]
     ]
+    # менеджер, назначенный до первого /start, ещё без имени в БД
+    name = user.firstname or (update.effective_user.first_name if update.effective_user else "")
     msg = await send_message(update,
-        f"👋 Привет, {safe_html(user.firstname)}! Статистика по магазину:\n\n {stats_text}",
+        f"👋 Привет, {safe_html(name)}! Статистика по магазину:\n\n{stats_text}",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode = "HTML"
     )
@@ -391,7 +384,7 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
         ]
             action_keyboard = [
             [InlineKeyboardButton("🍯 Выбрать мед", callback_data="honey_buy"),
-            InlineKeyboardButton("Дегустация 🍽", callback_data="honey_try")]            
+            InlineKeyboardButton("Дегустация 🍽", callback_data="honey_try")]
         ]
             keyboard = InlineKeyboardMarkup(location_keyboard+action_keyboard)
             # effective_message: меню открывается и командой, и колбэком back_menu
@@ -423,71 +416,51 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 
 async def handle_show_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    LAT = '43.672805'
-    LON = '40.200094'
     query = update.callback_query
     await query.answer()
 
     # Отправляем встроенную карту
-    await query.message.reply_location(
-        latitude=float(LAT),
-        longitude=float(LON)
-    )
-    return ConversationHandler.END   
+    latitude, longitude = APIARY_LOCATION
+    await query.message.reply_location(latitude=latitude, longitude=longitude)
+    return ConversationHandler.END
+
 
 async def handle_honey_try(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    from utils.logging_config import structured_logger
+    """Запись в лист ожидания дегустации; приглашение придёт, когда менеджер назначит дату."""
     query = update.callback_query
+    user = await get_user_by_tg_id(update.effective_user.id)
+    if user is None:
+        await query.answer("Сначала пройдите регистрацию: /start", show_alert=True)
+        return ConversationHandler.END
 
-    #await query.answer()
+    try:
+        async with get_async_session() as session:
+            record, created = await tasting.signup(session, user.tg_user_id)
+            await session.commit()
+    except Exception as e:
+        structured_logger.error(
+            f"Error in sign up for tasting: {str(e)}",
+            user_id=user.tg_user_id,
+            action="tasting_signup_error",
+            exception=e
+        )
+        await query.answer("Ошибка при записи на дегустацию.", show_alert=True)
+        return ConversationHandler.END
 
-    user_id = update.effective_user.id
-    user = await get_user_by_tg_id(user_id)
-    if user:
-        try:
-            existing_session_id = await get_actual_session_by_tg_id(user.tg_user_id,role_id=3)
-            if existing_session_id:
-                text = ("✅ Вы уже записаны на дегустацию!\n"
-                        "Ожидайте уведомления, бот пришлет приглашение за несколько дней.")
-                structured_logger.info(
-                    "User already registered for tasting",
-                    user_id=user.tg_user_id,
-                    session_id = existing_session_id,
-                    action="honey_try_duplicate"
-                )
-            else:
-                # создаём сессию с role_id = 3
-                session = await create_session(user.tg_user_id, role_id=3)
-                context.user_data["session_id"] = session.id
-
-                text = ("🍯 Вы записаны на дегустацию!\n"
-                    "Бот пришлёт приглашение за несколько дней.\n"
-                    "Мероприятие проходит раз в месяц, следите за обновлениями.")
-                structured_logger.info(
-                "User signed up for tasting",
-                user_id=user.tg_user_id,
-                session_id = session.id,
-                action="honey_try",
-            )
-
-            #await send_message(update,text)
-            await query.answer(text, show_alert = True)
-            
-            return ConversationHandler.END
-        
-        except Exception as e:
-            structured_logger.error(
-                f"Error in sigh up for tasting: {str(e)}",
-                user_id=user.tg_user_id,
-                action="honey_try",
-                exception=e
-            )
-            #await send_message(update,text=("Ошибка при записи на дегустацию."))
-            await query.answer("Ошибка при записи на дегустацию.", show_alert=True)
-            return ConversationHandler.END
+    if created:
+        text = ("🍯 Вы записаны на дегустацию!\n"
+                "Бот пришлёт приглашение за несколько дней.\n"
+                "Мероприятие проходит раз в месяц, следите за обновлениями.")
     else:
-        await send_message(update,text="пользователь не найден")
-
+        text = ("✅ Вы уже записаны на дегустацию!\n"
+                "Ожидайте уведомления, бот пришлет приглашение за несколько дней.")
+    structured_logger.info(
+        "User signed up for tasting",
+        user_id=user.tg_user_id,
+        action="tasting_signup" if created else "tasting_signup_duplicate",
+        context={"signup_id": record.id},
+    )
+    await query.answer(text, show_alert=True)
     return ConversationHandler.END
 
 # === Отмена ===

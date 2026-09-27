@@ -8,8 +8,8 @@ from sqlalchemy import (
     text
 )
 from sqlalchemy.orm import relationship
-from datetime import datetime
 from db.base import Base
+from utils.timeutils import utcnow
 
 
 
@@ -21,8 +21,8 @@ class ProductSize(Base):
     product_id = Column(Integer, ForeignKey("public.products.id", ondelete="CASCADE"), nullable=False)
     size_id = Column(Integer, ForeignKey("public.sizes.id", ondelete="CASCADE"), nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
 
 

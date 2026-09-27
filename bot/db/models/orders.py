@@ -9,7 +9,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from db.base import Base
-from datetime import datetime
+from utils.timeutils import utcnow
 
 
 class Order(Base):
@@ -23,19 +23,19 @@ class Order(Base):
     id = Column(Integer, primary_key=True)
     
     tg_user_id = Column(BIGINT, 
-                    ForeignKey("public.users.tg_user_id", ondelete="CASCADE"),
+                    ForeignKey("public.users.tg_user_id", ondelete="RESTRICT"),
                     nullable = False, unique = False)
     manager_id = Column(
         BIGINT,
         ForeignKey("public.users.tg_user_id", ondelete="SET NULL"),
         nullable=True, unique = False)
-    product_size_id = Column(Integer, ForeignKey("public.product_sizes.id", ondelete="CASCADE"), nullable=False)
-    status_id = Column(Integer, ForeignKey("public.order_statuses.id", ondelete="CASCADE"), nullable=False)    
+    product_size_id = Column(Integer, ForeignKey("public.product_sizes.id", ondelete="RESTRICT"), nullable=False)
+    status_id = Column(Integer, ForeignKey("public.order_statuses.id", ondelete="RESTRICT"), nullable=False)    
     product_count = Column(Integer, nullable=False)    
     # total_price может быть вычислена на уровне приложения, но сохраняется в БД
     total_price = Column(Numeric(10, 2), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     customer_comment = Column(String(255), nullable=True)
     manager_comment = Column(String(255), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
