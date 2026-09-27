@@ -1,15 +1,22 @@
+import os
+from pathlib import Path
+
 from telegram import BotCommand, BotCommandScopeChat, Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
+    BasePersistence,
+    DictPersistence,
+    PicklePersistence,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     TypeHandler,
 )
+from telegram.request import BaseRequest
 
 from config import get_settings
-from db_monitor import check_db
+from db_monitor import DB_CHECK_INTERVAL_SEC, HEARTBEAT_INTERVAL_SEC, check_db, write_heartbeat
 from handlers.AdminReplayUserProblemHandler import admin_replay_handler
 from handlers.DeclineCancelOrderHandler import conv_decline_cancel
 from handlers.InsertProductHandler import insert_product_conv
@@ -102,23 +109,51 @@ async def post_init(application: Application) -> None:
             structured_logger.warning("Owner commands not set", action="owner_commands_failed",
                                       context={"error": str(exc)})
 
-    application.job_queue.run_repeating(check_db, interval=30 * 60, first=10)
-    application.job_queue.run_repeating(expire_drafts_job, interval=60 * 60, first=60)
+    schedule_jobs(application)
 
 
-def build_application() -> Application:
+def schedule_jobs(application: Application) -> None:
+    jobs = application.job_queue
+    jobs.run_repeating(write_heartbeat, interval=HEARTBEAT_INTERVAL_SEC, first=0)
+    jobs.run_repeating(check_db, interval=DB_CHECK_INTERVAL_SEC, first=10)
+    jobs.run_repeating(expire_drafts_job, interval=60 * 60, first=60)
+
+
+def build_persistence() -> BasePersistence:
+    """Файл состояния на томе; если каталог недоступен — в памяти (бот работает, но диалоги не переживут рестарт)."""
+    state_file = get_settings().state_file
+    if state_file:
+        path = Path(state_file)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not os.access(path.parent, os.W_OK):
+                raise PermissionError(f"{path.parent} is not writable")
+            # пустой файл PTB не распакует и упадёт при старте — считаем, что состояния нет
+            if path.exists() and path.stat().st_size == 0:
+                path.unlink()
+            return PicklePersistence(filepath=path)
+        except OSError as exc:
+            structured_logger.warning(
+                "State file is not writable, conversations won't survive restart",
+                action="persistence_unavailable", context={"state_file": state_file, "error": str(exc)},
+            )
+    return DictPersistence()
+
+
+def build_application(
+    persistence: BasePersistence | None = None, request: BaseRequest | None = None
+) -> Application:
+    """request — подмена HTTP-клиента Telegram (сквозные тесты), в работе не передаётся."""
     settings = get_settings()
 
-    # тайм-ауты увеличены: Telegram из РФ отвечает медленно и иначе возвращает ошибку
-    app = (
-        ApplicationBuilder()
-        .token(settings.bot_token)
-        .connect_timeout(30)
-        .read_timeout(30)
-        .write_timeout(60)
-        .post_init(post_init)
-        .build()
-    )
+    builder = ApplicationBuilder().token(settings.bot_token).post_init(post_init)
+    builder = builder.persistence(persistence or build_persistence())
+    if request is not None:
+        builder = builder.request(request).get_updates_request(request)
+    else:
+        # тайм-ауты увеличены: Telegram из РФ отвечает медленно и иначе возвращает ошибку
+        builder = builder.connect_timeout(30).read_timeout(30).write_timeout(60)
+    app = builder.build()
 
     app.add_error_handler(on_error)
     app.add_handler(TypeHandler(Update, bind_log_context), group=-1)

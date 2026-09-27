@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from telegram import (
     Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove,
     InlineKeyboardButton, InlineKeyboardMarkup
@@ -23,7 +25,8 @@ from utils.constants import APIARY_ADDRESS, APIARY_LOCATION
 
 MAX_FIRSTNAME_LENGTH = 50  # users.firstname VARCHAR(50)
 
-WELCOME_PHOTO = "/bot/static/images/photo_paseka_1.jpg"
+# путь от кода, а не абсолютный /bot/…: работает и в контейнере, и в тестах/CI
+WELCOME_PHOTO = Path(__file__).resolve().parents[1] / "static" / "images" / "photo_paseka_1.jpg"
 
 FIRST_ENTRY_TEXT = ("Уважаемый Гость\n"
         "Вас приветствует медовый чат-бот 🤖 KrasPolHoney 🍯\n"
@@ -116,7 +119,6 @@ async def begin_registration(update: Update, context: ContextTypes.DEFAULT_TYPE,
     try:
         # Store user data for registration process
         context.user_data.update({
-            "tg_user": tg_user,
             "registration_step": "name",
             "registration_start_time": utcnow()
         })
@@ -170,8 +172,9 @@ async def begin_registration(update: Update, context: ContextTypes.DEFAULT_TYPE,
     
 async def handle_name_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle name input during registration"""
-    tg_user = context.user_data.get("tg_user")
-    user_id = tg_user.id if tg_user else None
+    # тот же пользователь, что начал регистрацию; объект Telegram в user_data не храним (persistence)
+    tg_user = update.effective_user
+    user_id = tg_user.id
     
     try:
         first_name = update.message.text.strip()
@@ -228,8 +231,9 @@ async def handle_name_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         
 async def handle_phone_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle phone number during registration"""
-    tg_user = context.user_data.get("tg_user")
-    user_id = tg_user.id if tg_user else None
+    # тот же пользователь, что начал регистрацию; объект Telegram в user_data не храним (persistence)
+    tg_user = update.effective_user
+    user_id = tg_user.id
     
     try:
         phone = None
@@ -388,7 +392,7 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
         ]
             keyboard = InlineKeyboardMarkup(location_keyboard+action_keyboard)
             # effective_message: меню открывается и командой, и колбэком back_menu
-            msg = await update.effective_message.reply_photo(
+            msg = await update.effective_chat.send_photo(
                 photo=f,
                 caption=WELCOME_TEXT,
                 reply_markup=keyboard
@@ -411,7 +415,7 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
             action="customer_menu_error",
             exception=e
         )
-        await update.effective_message.reply_text("Ошибка при отображении меню.")
+        await update.effective_chat.send_message("Ошибка при отображении меню.")
         return ConversationHandler.END
 
 
@@ -421,7 +425,7 @@ async def handle_show_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Отправляем встроенную карту
     latitude, longitude = APIARY_LOCATION
-    await query.message.reply_location(latitude=latitude, longitude=longitude)
+    await update.effective_chat.send_location(latitude=latitude, longitude=longitude)
     return ConversationHandler.END
 
 

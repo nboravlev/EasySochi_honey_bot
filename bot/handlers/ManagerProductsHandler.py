@@ -15,6 +15,9 @@ from handlers.ManagerProductsConversation import (
 )
 
 manager_products = ConversationHandler(
+    # состояние диалога сохраняется в PicklePersistence и переживает перезапуск бота
+    name="manager_products",
+    persistent=True,
     entry_points=[
                   CallbackQueryHandler(handle_manager_products, pattern="^honey_get$")
 ],

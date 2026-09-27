@@ -7,6 +7,9 @@ from handlers.AdminReplayUserProblemConversation import (
 )
 
 admin_replay_handler = ConversationHandler(
+    # состояние диалога сохраняется в PicklePersistence и переживает перезапуск бота
+    name="admin_reply",
+    persistent=True,
     entry_points=[CallbackQueryHandler(reply_callback, pattern="^reply_")],
     states={
         REPLY_WAITING: [

@@ -49,10 +49,7 @@ async def start_select_product(update: Update, context: ContextTypes.DEFAULT_TYP
     if update.callback_query:
         query = update.callback_query
         await query.answer()
-        msg_target = update.callback_query.message
         await query.edit_message_reply_markup(reply_markup=None)
-    else:
-        msg_target = update.message
     #удаляет предыдущий вариант показа карточек выбранного типа, если гость нажал на Вернуться.
     chat_id = update.effective_chat.id
     msg_ids = context.user_data.get("product_messages", [])
@@ -81,7 +78,7 @@ async def start_select_product(update: Update, context: ContextTypes.DEFAULT_TYP
         types = result.scalars().all()
 
     if not types:
-        await msg_target.reply_text("❌ В данный момент нет доступных сортов меда.")
+        await update.effective_chat.send_message("❌ В данный момент нет доступных сортов меда.")
         return ConversationHandler.END
 
     # Формируем клавиатуру
@@ -89,7 +86,7 @@ async def start_select_product(update: Update, context: ContextTypes.DEFAULT_TYP
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     # Отправляем сообщение
-    await msg_target.reply_text(
+    await update.effective_chat.send_message(
         "Какого мёда желаете сегодня? Выберите сорт:",
         reply_markup=reply_markup
     )
@@ -134,7 +131,7 @@ async def show_filtered_products(update: Update, context: ContextTypes.DEFAULT_T
         products = result.scalars().all()
 
     if not products:
-        await update.effective_message.reply_text("❌ Похоже, мед этого сорта закончился.")
+        await update.effective_chat.send_message("❌ Похоже, мед этого сорта закончился.")
         return ConversationHandler.END
 
     context.user_data["product_messages"] = []  # сбрасываем перед показом
@@ -146,14 +143,14 @@ async def show_filtered_products(update: Update, context: ContextTypes.DEFAULT_T
         caption = f"<b>{safe_html(product.name)}</b>\n{safe_html(product.description) or 'Без описания'}"
 
         if image_file_id:
-            sent = await update.effective_message.reply_photo(
+            sent = await update.effective_chat.send_photo(
                 photo=image_file_id,
                 caption=caption,
                 reply_markup=keyboard_markup,
                 parse_mode="HTML"
             )
         else:
-            sent = await update.effective_message.reply_text(
+            sent = await update.effective_chat.send_message(
                 caption,
                 reply_markup=keyboard_markup,
                 parse_mode="HTML"
@@ -173,7 +170,7 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
         try:
             product_size_id = int(data.split("_")[-1])
         except (ValueError, IndexError):
-            await query.message.reply_text("Ошибка выбора размера. Попробуйте снова.")
+            await update.effective_chat.send_message("Ошибка выбора размера. Попробуйте снова.")
             return PRODUCT_TYPES_SELECTION
 
         context.user_data["selected_size_id"] = product_size_id
@@ -192,7 +189,7 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 )
 
                 keyboard = await build_order_keyboard(order, order.total_price)
-                msg = await update.callback_query.message.reply_text(
+                msg = await update.effective_chat.send_message(
                     order_texts.draft_card(order), reply_markup=keyboard, parse_mode="HTML"
                 )
                 await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
@@ -200,7 +197,7 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 await session.commit()
             except OrderError as e:
                 await session.rollback()
-                await query.message.reply_text(e.user_message)
+                await update.effective_chat.send_message(e.user_message)
                 return ConversationHandler.END
             except Exception as e:
                 structured_logger.error(
@@ -240,7 +237,7 @@ async def handle_update_quantity(update: Update, context: ContextTypes.DEFAULT_T
         order_id = int(order_id_str)
     except ValueError:
         await query.answer()
-        await query.message.reply_text("Ошибка при изменении количества.")
+        await update.effective_chat.send_message("Ошибка при изменении количества.")
         return SELECT_QUANTITY
 
 
@@ -267,7 +264,7 @@ async def handle_update_quantity(update: Update, context: ContextTypes.DEFAULT_T
             return SELECT_QUANTITY
 
         keyboard = await build_order_keyboard(order, order.total_price)
-        msg = await query.message.edit_text(order_texts.draft_card(order), reply_markup=keyboard, parse_mode="HTML")
+        msg = await query.edit_message_text(order_texts.draft_card(order), reply_markup=keyboard, parse_mode="HTML")
         await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
         order.session.last_action = {"event": "update_quantity", "message_id": query.message.message_id}
         await session.commit()
@@ -281,13 +278,13 @@ async def customer_comment_handler(update: Update, context: ContextTypes.DEFAULT
         _, _, order_id_str = query.data.split("_")  # customer_comment_<id>
         order_id = int(order_id_str)
     except Exception:
-        await query.message.reply_text("Ошибка обработки заказа. Попробуйте снова.")
+        await update.effective_chat.send_message("Ошибка обработки заказа. Попробуйте снова.")
         return SELECT_QUANTITY
 
     # Сохраняем order_id в user_data, чтобы поймать в следующем сообщении
     context.user_data["pending_comment_order_id"] = order_id
 
-    await query.message.reply_text(f"✍️ Введите комментарий к заказу (до {MAX_COMMENT_LENGTH} символов):")
+    await update.effective_chat.send_message(f"✍️ Введите комментарий к заказу (до {MAX_COMMENT_LENGTH} символов):")
     return CUSTOMER_COMMENT  # отдельное состояние
 
 async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):

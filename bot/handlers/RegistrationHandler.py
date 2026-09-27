@@ -14,6 +14,9 @@ from handlers.RegistrationConversation import (
 )
 
 registration_conversation = ConversationHandler(
+    # состояние диалога сохраняется в PicklePersistence и переживает перезапуск бота
+    name="registration",
+    persistent=True,
     entry_points=[
         CommandHandler("start", start)
     ],

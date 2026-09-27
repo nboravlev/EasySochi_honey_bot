@@ -47,10 +47,19 @@ class Settings(_Base):
     # «111,222» или «[111, 222]»; только первичное заполнение users.role_id (services.users.bootstrap_managers)
     manager_list: str = ""
     seller_contact: str | None = None
+
+    # мониторинг БД: при смене состояния (упала / восстановилась) — сообщение сразу;
+    # плюс сообщение «база доступна» раз в N минут (0 — только при смене состояния)
     db_monitor_chat_id: int = -1002843679066
+    db_monitor_heartbeat_minutes: int = 30
 
     log_dir: str = "/app/logs"
     log_level: str = "INFO"
+
+    # диалоги и user_data между перезапусками (пустая строка — не сохранять)
+    state_file: str = "/app/state/bot_state.pickle"
+    # файл обновляется джобой каждые 30 с; по его свежести docker healthcheck судит, что бот не завис
+    heartbeat_file: str = "/tmp/bot_heartbeat"
 
     @cached_property
     def manager_ids(self) -> frozenset[int]:

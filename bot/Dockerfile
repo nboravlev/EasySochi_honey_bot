@@ -13,10 +13,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Непривилегированный пользователь (UID 1000 — владелец томов на хосте)
+# Непривилегированный пользователь (UID 1000 — владелец томов на хосте).
+# /app/state — файл состояния диалогов; том bot_state_honey при первом создании наследует владельца.
 RUN useradd -m -u 1000 honeybot \
     && chmod +x /bot/entrypoint.sh \
-    && chown -R honeybot:honeybot /bot
+    && mkdir -p /app/state \
+    && chown -R honeybot:honeybot /bot /app/state
 USER honeybot
 
 ENTRYPOINT ["/bot/entrypoint.sh"]

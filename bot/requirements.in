@@ -1,6 +1,6 @@
 # Прямые зависимости бота. Полный lock со всеми транзитивными — requirements.txt:
 #   pip-compile --strip-extras requirements.in
-python-telegram-bot[job-queue]==20.7
+python-telegram-bot[job-queue]>=22,<23
 SQLAlchemy==2.0.41
 asyncpg==0.30.0
 alembic==1.16.4

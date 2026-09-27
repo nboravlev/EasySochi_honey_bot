@@ -21,9 +21,11 @@ def all_handlers(app):
 
 
 def test_application_builds_with_valid_handlers():
+    from telegram.ext import DictPersistence
+
     from main import build_application
 
-    app = build_application()
+    app = build_application(persistence=DictPersistence())
     handlers = list(all_handlers(app))
     assert len(handlers) > 40
     # раньше в fallbacks отклонения лежали строка и функция — теперь только хендлеры

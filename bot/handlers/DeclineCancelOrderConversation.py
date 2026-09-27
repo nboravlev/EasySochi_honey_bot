@@ -28,7 +28,7 @@ async def booking_decline_callback(update: Update, context: ContextTypes.DEFAULT
     except Exception:
         pass  # клавиатура уже снята
 
-    await query.message.reply_text(
+    await update.effective_chat.send_message(
         f"❌ Укажите причину отклонения заявки (макс. {MAX_REASON_LENGTH} символов):",
         reply_markup=ReplyKeyboardMarkup(
             [[KeyboardButton(SKIP_REASON_BUTTON)]], resize_keyboard=True, one_time_keyboard=True

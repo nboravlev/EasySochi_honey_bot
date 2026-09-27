@@ -7,6 +7,9 @@ from handlers.ManagerOrdersConversation import (
 )
 
 manager_orders = ConversationHandler(
+    # состояние диалога сохраняется в PicklePersistence и переживает перезапуск бота
+    name="manager_orders",
+    persistent=True,
     entry_points=[CallbackQueryHandler(handle_seller_orders, pattern=r"^honey_orders_\d+$")],
     states={
             VIEW_ORDERS: [CallbackQueryHandler(handle_seller_orders, pattern=r"^owner_order_(next|prev|filter)_(\d+|all)$"),

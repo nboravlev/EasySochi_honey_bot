@@ -41,7 +41,7 @@ Telegram-бот продаж мёда небольшой краснополян�
 
 ## 🏗 Архитектура
 
-- **Bot**: Python 3.12 (python_telegram_bot/sqlalchemy)
+- **Bot**: Python 3.12 (python-telegram-bot 22, SQLAlchemy 2 async)
 - **Database**: PostgreSQL 15 + PostGIS
 - **Logs**: JSON-логи + FastAPI Log Viewer
 - **Proxy**: Nginx Gateway (внешний)
@@ -103,6 +103,8 @@ docker compose up -d --build
 ```
 
 Код бота берётся из образа, поэтому после изменений нужен `--build`.
+
+**Выкатка обновлений, мониторинг, бэкапы, восстановление после аварии — в [OPERATIONS.md](OPERATIONS.md).**
 Миграции при обновлении применяются той же командой `alembic upgrade head`.
 
 ### Доступ к БД и лог-вьюеру
@@ -140,6 +142,8 @@ EasySochi_honey_bot/
 │   ├── init/init-pg.sql       # расширения при первой инициализации БД
 │   └── tools/
 ├── log_viewer/
+├── ops/                      # бэкап, проверка восстановления, аварийное восстановление, автоперезапуск
+├── OPERATIONS.md           # руководство по эксплуатации
 └── docker-compose.yml
 ```
 
@@ -151,7 +155,7 @@ EasySochi_honey_bot/
 pip install -r requirements.txt -r requirements-dev.txt
 ruff check .
 pytest                                   # юнит-тесты
-RUN_DB_TESTS=1 pytest tests/integration  # сервисы на реальной PostgreSQL после alembic upgrade head
+RUN_DB_TESTS=1 pytest tests/integration tests/e2e  # на временной PostgreSQL после alembic upgrade head (e2e очищает таблицы!)
 ```
 
 Время в БД хранится в UTC (`timestamptz`), пользователю показывается по Москве (`utils/timeutils.py`).

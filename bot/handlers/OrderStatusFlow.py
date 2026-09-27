@@ -15,7 +15,7 @@ from domain.enums import OrderStatus
 from domain.order_flow import InvalidTransition
 from handlers.ManagerOrdersConversation import handle_seller_orders
 from services import order_texts
-from services.orders import get_order, transition
+from services.orders import get_order, registered_user_id, transition
 from utils.access import staff_only
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
@@ -70,7 +70,8 @@ async def order_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE)
         try:
             if order is None:
                 raise LookupError
-            waited = transition(order, OrderStatus.PROCESSING, actor_id=update.effective_user.id)
+            seller_id = await registered_user_id(session, update.effective_user.id)
+            waited = transition(order, OrderStatus.PROCESSING, actor_id=seller_id)
         except (LookupError, InvalidTransition):
             return await _reject(query, order)
         await session.commit()
@@ -95,7 +96,7 @@ async def order_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await handle_seller_orders(update, context)
     else:
         await query.answer()
-        await query.message.edit_text(
+        await query.edit_message_text(
             text=order_texts.manager_card(order, f"🔔 Заказ #{order.id}🔔") + warning,
             reply_markup=InlineKeyboardMarkup(
                 [[InlineKeyboardButton("📦 Заказ готов к выдаче", callback_data=f"order_ready_{order.id}")]]
@@ -147,7 +148,7 @@ async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         await handle_seller_orders(update, context)
     else:
         await query.answer()
-        await query.message.edit_text(
+        await query.edit_message_text(
             text=f"Покупатель получил уведомление, что заказ №{order.id} готов к выдаче{warning}",
             reply_markup=None,
         )
@@ -196,7 +197,7 @@ async def customer_button_handler(update: Update, context: ContextTypes.DEFAULT_
         ),
     )
     seller_phone = (order.manager.phone_number if order.manager else None) or get_settings().seller_contact
-    await query.message.reply_text(
+    await update.effective_chat.send_message(
         "Продавец проинформирован,\nчто примерная дата получения заказа:\n"
         f"<b>{pickup_date}</b>\n"
         + (f"Номер телефона для связи\n☎️: {safe_html(seller_phone)}" if seller_phone else ""),

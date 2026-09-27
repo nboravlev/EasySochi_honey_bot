@@ -92,7 +92,7 @@ async def manager_remove_callback(update: Update, context: ContextTypes.DEFAULT_
     if user is not None:
         structured_logger.info("Manager removed", action="manager_removed", context={"tg_user_id": tg_user_id})
         await _tell(context, tg_user_id, "Права менеджера медового бота сняты.")
-    await query.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 managers_handlers = [

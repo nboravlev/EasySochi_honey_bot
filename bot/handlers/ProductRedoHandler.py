@@ -42,13 +42,13 @@ async def redo_product_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await session.commit()
 
         # Определяем тип сообщения (текст или фото)
-        if message.text:
+        if getattr(message, "text", None):
             await query.edit_message_text(RESTART_TEXT)
-        elif message.caption:
+        elif getattr(message, "caption", None):
             await query.edit_message_caption(caption=RESTART_TEXT)
         else:
             # Фолбэк — если нет текста и подписи
-            await message.reply_text(RESTART_TEXT)
+            await update.effective_chat.send_message(RESTART_TEXT)
 
 
 
@@ -59,7 +59,7 @@ async def redo_product_callback(update: Update, context: ContextTypes.DEFAULT_TY
             action="product_redo_error",
             exception=exc
         )
-        await message.reply_text(
+        await update.effective_chat.send_message(
             "❌ Произошла ошибка при удалении данных. Попробуйте ещё раз."
         )
 

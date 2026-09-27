@@ -56,12 +56,9 @@ async def start_add_object(update: Update, context: ContextTypes.DEFAULT_TYPE):
             query = update.callback_query
             await query.answer()
             await query.edit_message_reply_markup(reply_markup=None)
-            send_to = query.message
-        else:
-            send_to = update.message
 
         keyboard = [[KeyboardButton("Сохранить название")]]
-        await send_to.reply_text(
+        await update.effective_chat.send_message(
             "Введите название продукта:",
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
         )
@@ -69,7 +66,7 @@ async def start_add_object(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return PRODUCT_NAME
     except Exception as e:
         structured_logger.error("Error in start_add_object", exception=e)
-        await update.message.reply_text("Ошибка при старте добавления продукта.")
+        await update.effective_chat.send_message("Ошибка при старте добавления продукта.")
         return ConversationHandler.END
 
 
@@ -113,20 +110,18 @@ async def handle_object_type(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def ask_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
-        target = update.callback_query.message
         await update.callback_query.answer()
-    else:
-        target = update.message
+    target = update.effective_chat  # сообщение из колбэка может быть недоступно (InaccessibleMessage)
 
     idx = context.user_data.get("current_size_index", 0)
     if idx >= len(SIZES):
         if not context.user_data.get("sizes"):
             context.user_data["sizes"] = []
             context.user_data["current_size_index"] = 0
-            await target.reply_text("⚠️ Укажите хотя бы один размер с ценой. Начнем заново.")
+            await target.send_message("⚠️ Укажите хотя бы один размер с ценой. Начнем заново.")
             return await ask_size(update, context)
         else:
-            msg = await target.reply_text(
+            msg = await target.send_message(
                 "Введите описание продукта:",
                 reply_markup=ReplyKeyboardMarkup([[KeyboardButton("Пропустить описание")]], resize_keyboard=True, one_time_keyboard=True)
             )
@@ -135,7 +130,7 @@ async def ask_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     size = SIZES[idx]
     keyboard = ReplyKeyboardMarkup([["Да", "Нет"]], resize_keyboard=True, one_time_keyboard=True)
-    await target.reply_text(f"Добавляем размер {size} Укажите цену:", reply_markup=keyboard)
+    await target.send_message(f"Добавляем размер {size} Укажите цену:", reply_markup=keyboard)
     structured_logger.info(f"Prompted user for size {size}")
     return PRODUCT_SIZE
 
