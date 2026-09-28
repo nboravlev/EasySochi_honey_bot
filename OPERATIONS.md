@@ -81,6 +81,10 @@ docker inspect -f '{{.State.Health.Status}}' tg_bot_honey
 `/data/easysochi/backups_honey/honey_ГГГГММДД_ЧЧММСС.dump`, проверяет, что архив читается,
 и удаляет дампы старше 14 дней (`KEEP_DAYS`). Боевую работу бота не прерывает.
 
+Затем копирует фото товаров в `/data/easysochi/backups_honey/media/` (через контейнер бота — он владелец
+файлов). Фото после записи не меняются, поэтому копия просто пополняется. Если бот остановлен и фото
+скопировать не удалось, бэкап базы всё равно создаётся, а в чат приходит предупреждение.
+
 ### Однократная настройка
 
 ```bash
@@ -147,6 +151,14 @@ docker compose restart bot_honey
 **Новый сервер:** развернуть проект по README (без `alembic upgrade`), скопировать дамп,
 выполнить `./ops/restore.sh <дамп>`, затем `alembic upgrade head` и `docker compose up -d`.
 
+**Фото товаров** восстанавливаются отдельно — копированием из бэкапа в том бота (бот должен быть запущен):
+
+```bash
+tar -C /data/easysochi/backups_honey/media -cf - . | docker exec -i tg_bot_honey tar -C /app/media -xf -
+```
+
+Фото, которых нет ни в хранилище, ни в бэкапе, бот отправляет по старому Telegram `file_id`, пока тот действителен.
+
 ---
 
 ## 7. Сохранение диалогов между перезапусками
@@ -178,9 +190,102 @@ docker compose restart bot_honey
 | `DB_MONITOR_CHAT_ID` | прежний канал | куда писать мониторинг, бэкапы, перезапуски |
 | `DB_MONITOR_HEARTBEAT_MINUTES` | `30` | «база доступна» раз в N минут; `0` — только при смене состояния |
 | `STATE_FILE` | `/app/state/bot_state.pickle` | файл состояния диалогов; пусто — не сохранять |
+| `MEDIA_DIR` | `/app/media` | фото товаров (том `bot_media_honey`) |
+| `STOREFRONT_SHOP` | `kraspolhoney` | slug магазина-витрины; пусто — маркетплейс (каталог всех магазинов) |
 | `LOG_LEVEL` | `INFO` | подробность логов |
 | `SLOW_QUERY_MS` | `500` | порог медленного SQL-запроса для лога |
 
 Переменные скриптов `ops/` (задаются перед командой, например `KEEP_DAYS=30 ./ops/backup.sh`):
 `BACKUP_DIR` (`/data/easysochi/backups_honey`), `KEEP_DAYS` (`14`), `DB_CONTAINER` (`postgres_db_honey`),
 `BOT_CONTAINER` (`tg_bot_honey`), `ENV_FILE` (`.env` в корне репозитория).
+
+---
+
+## 9. Магазины, уведомления, фото
+
+Пока нет админ-панели, магазины и их служебные чаты настраиваются SQL-запросами. Консоль базы:
+
+```bash
+docker exec -it postgres_db_honey sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
+
+### Сменить служебный чат магазина
+
+Служебный чат — Telegram-группа, куда приходят новые заказы и где их подтверждают. Бот должен быть
+в группе. ID группы — в логах бота (`chat_id`) или через @getidsbot.
+
+```sql
+UPDATE shop_channels SET address = '-1001234567890'
+ WHERE shop_id = (SELECT id FROM shops WHERE slug = 'kraspolhoney')
+   AND provider = 'telegram' AND purpose = 'staff';
+```
+
+Если группу превратили в супергруппу, бот обновит адрес сам при первой отправке.
+Сменить `ADMIN_CHAT_ID` в `.env` недостаточно — он используется только при первом запуске.
+
+### Добавить магазин
+
+```sql
+INSERT INTO shops (slug, name, contact_phone) VALUES ('adler-honey', 'Мёд Адлера', '+79880000000') RETURNING id;
+-- точка выдачи: долгота, затем широта
+INSERT INTO shop_locations (shop_id, name, address, point)
+VALUES (2, 'Склад', 'Адлер, ул. Ленина, 1', ST_SetSRID(ST_MakePoint(39.92, 43.43), 4326));
+INSERT INTO shop_channels (shop_id, provider, address) VALUES (2, 'telegram', '-1001234567890');
+```
+
+Менеджера назначает владелец в боте: `/manager_add @username adler-honey`.
+Товары нового магазина видны покупателям, только если `STOREFRONT_SHOP` пуст (режим маркетплейса).
+
+### Очередь уведомлений
+
+Сообщения покупателям и в служебные чаты идут через таблицу `notifications`. Если Telegram не ответил,
+бот повторяет отправку через 30 с, 2, 10, 30 минут, 1 и 3 часа, затем помечает строку `failed`.
+Бот заблокирован или чат не найден — `failed` сразу. В логах: `notify_failed` (каждая неудача),
+`notify_retry_batch` (досылка), `notify_no_channel` (получателю некуда писать).
+
+```sql
+-- сколько в каком статусе
+SELECT status, count(*) FROM notifications GROUP BY status;
+-- что не доставлено за сутки и почему
+SELECT id, kind, user_id, shop_id, attempts, last_error, created_at
+  FROM notifications WHERE status = 'failed' AND created_at > now() - interval '1 day' ORDER BY id DESC;
+-- отправить повторно (например, после того как бота добавили в группу)
+UPDATE notifications SET status = 'pending', attempts = 0, next_attempt_at = now() WHERE id = 123;
+```
+
+Отправленные строки хранятся 30 дней, неотправленные — 90, затем удаляются автоматически.
+
+### Фото товаров
+
+Файлы — в `/data/easysochi/media_honey` (в контейнере `/app/media`), в таблице `images` — ключ файла
+(`storage_key`) и кэш Telegram (`tg_file_id`). Каталог на хосте должен принадлежать `1000:1000`:
+иначе бот принимает фото, но не сохраняет файл (в логе `media_store_failed`).
+
+После старта бот один раз скачивает в хранилище фото, которые есть только в Telegram
+(лог `media_backfill`: сколько перенесено и сколько не удалось). Проверка:
+
+```sql
+SELECT count(*) FILTER (WHERE storage_key IS NOT NULL) AS in_storage,
+       count(*) FILTER (WHERE storage_key IS NULL) AS only_telegram
+  FROM images;
+```
+
+---
+
+## 10. Однократно: выкатка «фазы А» (магазины, пользователи платформ, очередь, фото)
+
+Релиз меняет схему существенно: 4 миграции (`d3e4f5a6b7c8` → `a6b7c8d9e0f1`). Порядок — как в разделе 1, плюс:
+
+1. **Бэкап обязателен** (`./ops/backup.sh`): миграции переносят ссылки на пользователей с Telegram ID на `users.id`.
+2. Проверить владельца каталога фото: `ls -ld /data/easysochi/media_honey` → `1000 1000`
+   (если нет — `sudo chown -R 1000:1000 /data/easysochi/media_honey`).
+3. В `.env` ничего менять не нужно: `STOREFRONT_SHOP` по умолчанию `kraspolhoney` — магазин,
+   который создаёт миграция из текущих данных (точка выдачи «Пасека», Красная Поляна).
+4. После `docker compose up -d --build` в логе бота должны быть `storefront_bootstrap`
+   (служебный чат и телефон перенесены из `ADMIN_CHAT_ID` / `SELLER_CONTACT` в БД) и, через минуту,
+   `media_backfill`.
+5. Ручная проверка: заказ от тестового покупателя приходит в служебный чат, «Подтвердить» работает,
+   покупателю приходит уведомление; в «Мой мёд» у менеджера видны фото.
+
+Откат: `alembic downgrade c2d3e4f5a6b7` возвращает прежнюю схему, пока в системе нет пользователей
+без Telegram (сайт, VK) и фото, загруженных только в хранилище; иначе — восстановление из бэкапа (раздел 6).
