@@ -43,6 +43,7 @@ from services.orders import expire_stale_drafts
 from services.shops import bootstrap_storefront, storefront_shop_id
 from services.users import bootstrap_managers
 from utils.logging_config import bind_update_context, setup_logging, structured_logger
+from utils.telegram_delivery import DISPATCH_INTERVAL_SEC, dispatch_due_job, purge_job
 
 USER_COMMANDS = [
     BotCommand("start", "🔄 Перезапустить бот"),
@@ -121,6 +122,9 @@ def schedule_jobs(application: Application) -> None:
     jobs.run_repeating(write_heartbeat, interval=HEARTBEAT_INTERVAL_SEC, first=0)
     jobs.run_repeating(check_db, interval=DB_CHECK_INTERVAL_SEC, first=10)
     jobs.run_repeating(expire_drafts_job, interval=60 * 60, first=60)
+    # уведомления, не ушедшие сразу (Telegram не ответил), и чистка старых строк очереди
+    jobs.run_repeating(dispatch_due_job, interval=DISPATCH_INTERVAL_SEC, first=15)
+    jobs.run_repeating(purge_job, interval=24 * 60 * 60, first=5 * 60)
 
 
 def build_persistence() -> BasePersistence:

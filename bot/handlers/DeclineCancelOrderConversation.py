@@ -3,14 +3,15 @@ from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, U
 from telegram.ext import ContextTypes, ConversationHandler
 
 from db.db_async import get_async_session
+from domain.messages import OutMessage, ToUser
 from domain.order_flow import InvalidTransition
-from services import order_texts
+from services import notifications, order_texts
 from services.orders import MAX_REASON_LENGTH, decline, get_order
 from utils.access import can_manage_shop, get_actor, staff_only
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
 from utils.message_tricks import cleanup_messages
-from utils.telegram_delivery import send_to_user
+from utils.telegram_delivery import deliver, undelivered_note
 
 DECLINE_REASON = 1
 SKIP_REASON_BUTTON = "отправка причины"
@@ -61,18 +62,17 @@ async def booking_decline_reason(update: Update, context: ContextTypes.DEFAULT_T
                 parse_mode="HTML",
             )
             return ConversationHandler.END
+        pending = notifications.ids_of(await notifications.enqueue(
+            session, ToUser(order.customer_id), OutMessage(order_texts.customer_declined(order)), "order_declined"
+        ))
         await session.commit()
 
     structured_logger.info(
         "Order declined", order_id=order.id, action="order_declined",
         context={"customer_id": order.customer_id, "shop_id": order.shop_id, "reason_length": len(reason)},
     )
-    if await send_to_user(
-        context.bot, order.customer_id, text=order_texts.customer_declined(order), parse_mode="HTML"
-    ):
-        confirm_text = "‼️ Заказ отклонен, гость уведомлен."
-    else:
-        confirm_text = "‼️ Заказ отклонен, но гость не получил уведомление (возможно, заблокировал бота)."
+    note = undelivered_note(await deliver(context.bot, pending), who="Гость")
+    confirm_text = f"‼️ Заказ отклонен{note}" if note else "‼️ Заказ отклонен, гость уведомлен."
 
     await update.message.reply_text(confirm_text, reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END

@@ -32,6 +32,12 @@ class TastingStatus(StrEnum):
     DECLINED = "declined"   # ответил «Не смогу»
 
 
+class NotificationStatus(StrEnum):
+    PENDING = "pending"     # ждёт отправки (в том числе повторной)
+    SENT = "sent"
+    FAILED = "failed"       # отправить нельзя (бот заблокирован, чата нет) или попытки исчерпаны
+
+
 class Provider(StrEnum):
     """Платформа, через которую человек пользуется системой (user_identities, shop_channels)."""
     TELEGRAM = "telegram"

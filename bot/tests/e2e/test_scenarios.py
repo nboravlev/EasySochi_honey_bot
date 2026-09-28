@@ -4,6 +4,7 @@ from datetime import timedelta
 import pytest
 
 from domain.enums import OrderStatus, Role, TastingStatus
+from utils.telegram_delivery import dispatch_due_job
 from utils.timeutils import local_today
 
 from .conftest import (
@@ -16,6 +17,7 @@ from .conftest import (
     STAFF_CHAT_B,
     STRANGER,
     create_second_shop,
+    execute,
     query,
     register,
     start_bot,
@@ -194,6 +196,56 @@ async def test_owner_appoints_manager_to_other_shop(bot, catalog):
     assert await user_value("shop_id", BUYER) == shop_b
     calls = await bot.send(OWNER, "/manager_add @nobody_here no-such-shop")
     assert "Магазин не найден" in all_text(calls)
+
+
+# --- уведомления (очередь)
+
+async def test_blocked_buyer_does_not_block_seller(bot, catalog):
+    await register(BUYER)
+    order_id = await place_order(bot, catalog)
+    bot.telegram.blocked.add(BUYER.id)
+
+    calls = await bot.click(ADMIN_CHAT_MEMBER, f"confirm_order_{order_id}", chat_id=ADMIN_CHAT_ID)
+    assert "не получил уведомление" in all_text(to(calls, ADMIN_CHAT_ID))
+    assert await order_status(order_id) == OrderStatus.PROCESSING
+    # повторять бессмысленно — строка сразу failed
+    assert await query("SELECT status, attempts FROM notifications WHERE kind = 'order_confirmed'") == [("failed", 1)]
+
+
+async def test_notification_retried_after_telegram_timeout(bot, catalog):
+    await register(BUYER)
+    order_id = await place_order(bot, catalog)
+    bot.telegram.unreachable.add(BUYER.id)
+
+    calls = await bot.click(ADMIN_CHAT_MEMBER, f"confirm_order_{order_id}", chat_id=ADMIN_CHAT_ID)
+    assert "бот повторит отправку" in all_text(to(calls, ADMIN_CHAT_ID))
+    assert not to(calls, BUYER.id)
+    assert await query("SELECT status, attempts FROM notifications WHERE kind = 'order_confirmed'") == [("pending", 1)]
+
+    calls = await bot.run_job(dispatch_due_job)       # пауза перед повтором ещё не прошла
+    assert not to(calls, BUYER.id)
+
+    bot.telegram.unreachable.clear()
+    await execute("UPDATE notifications SET next_attempt_at = now() - interval '1 second' WHERE status = 'pending'")
+    calls = await bot.run_job(dispatch_due_job)
+    assert "подтвержден" in all_text(to(calls, BUYER.id))
+    assert button(to(calls, BUYER.id), "show_map_")
+    assert await query("SELECT status, attempts FROM notifications WHERE kind = 'order_confirmed'") == [("sent", 2)]
+
+
+async def test_support_request_and_reply(bot, catalog):
+    await bot.send(STRANGER, "/help")                  # писать в поддержку можно без регистрации
+    calls = await bot.send(STRANGER, "Не приходит <код>")
+    assert "передано администратору" in all_text(to(calls, STRANGER.id))
+    card = to(calls, ADMIN_CHAT_ID)
+    assert "Не приходит &lt;код&gt;" in all_text(card)
+
+    reply = button(card, "reply_")
+    assert reply == f"reply_{await user_value('id', STRANGER)}"
+    await bot.click(ADMIN_CHAT_MEMBER, reply, chat_id=ADMIN_CHAT_ID)
+    calls = await bot.send(ADMIN_CHAT_MEMBER, "Проверьте спам", chat_id=ADMIN_CHAT_ID)
+    assert "Проверьте спам" in all_text(to(calls, STRANGER.id))
+    assert "Ответ отправлен" in all_text(to(calls, ADMIN_CHAT_ID))
 
 
 # --- дегустации

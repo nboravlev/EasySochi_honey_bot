@@ -10,12 +10,13 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 from db.db_async import get_async_session
 from db.models import User
 from domain.enums import Provider
+from domain.messages import OutMessage, ToUser
 from services import shops
 from services.users import find_user, list_managers, set_manager
 from utils.access import is_owner, owner_only
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
-from utils.telegram_delivery import send_to_user
+from utils.telegram_delivery import notify
 
 USAGE = (
     "Назначить: <code>/manager_add @username</code> или <code>/manager_add 123456789</code> (Telegram ID).\n"
@@ -81,9 +82,10 @@ async def manager_add_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         text, keyboard = await _render(session)
 
     structured_logger.info("Manager added", action="manager_added", context={"user_id": user_id, "shop": shop_name})
-    await send_to_user(
-        context.bot, user_id,
-        text=f"🐝 Вам выданы права менеджера магазина «{shop_name}». Нажмите /start, чтобы открыть меню.",
+    await notify(
+        context.bot, ToUser(user_id),
+        OutMessage(f"🐝 Вам выданы права менеджера магазина «{safe_html(shop_name)}». Нажмите /start, чтобы открыть меню."),
+        "manager_added",
     )
     await update.message.reply_text(
         f"✅ Теперь менеджер магазина «{safe_html(shop_name)}».\n\n{text}", reply_markup=keyboard, parse_mode="HTML"
@@ -111,7 +113,7 @@ async def manager_remove_callback(update: Update, context: ContextTypes.DEFAULT_
     await query.answer("Права менеджера сняты." if user else "Пользователь не найден.")
     if user is not None:
         structured_logger.info("Manager removed", action="manager_removed", context={"user_id": user_id})
-        await send_to_user(context.bot, user_id, text="Права менеджера медового бота сняты.")
+        await notify(context.bot, ToUser(user_id), OutMessage("Права менеджера медового бота сняты."), "manager_removed")
     await query.edit_message_text(text, reply_markup=keyboard, parse_mode="HTML")
 
 

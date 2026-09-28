@@ -8,9 +8,11 @@ import itertools
 import json
 import time
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 from telegram import Update
+from telegram.error import TimedOut
 from telegram.ext import Application
 from telegram.request import BaseRequest, RequestData
 
@@ -45,6 +47,8 @@ class Call:
 class FakeTelegram(BaseRequest):
     def __init__(self):
         self.calls: list[Call] = []
+        self.blocked: set[int] = set()     # эти пользователи заблокировали бота (403)
+        self.unreachable: set[int] = set() # в эти чаты Telegram не отвечает (тайм-аут)
         self._message_ids = itertools.count(10_000)
 
     @property
@@ -60,6 +64,12 @@ class FakeTelegram(BaseRequest):
     async def do_request(self, url: str, method: str, request_data: RequestData | None = None, **_timeouts):
         api_method = url.rsplit("/", 1)[-1]
         params = dict(request_data.parameters) if request_data else {}
+        chat_id = int(params.get("chat_id", 0) or 0)
+        if api_method == "sendMessage" and chat_id in self.unreachable:
+            raise TimedOut("fake timeout")
+        if api_method == "sendMessage" and chat_id in self.blocked:
+            error = {"ok": False, "error_code": 403, "description": "Forbidden: bot was blocked by the user"}
+            return 403, json.dumps(error).encode()
         self.calls.append(Call(api_method, params))
         return 200, json.dumps({"ok": True, "result": self._result(api_method, params)}).encode()
 
@@ -126,6 +136,12 @@ class Bot:
                         "from": BOT_USER, "text": "…"},
         }
         return await self._process({"update_id": next(self._ids), "callback_query": query})
+
+    async def run_job(self, job) -> list[Call]:
+        """Запустить периодическую задачу бота (как это делает JobQueue) и вернуть, что она отправила."""
+        before = len(self.telegram.calls)
+        await job(SimpleNamespace(bot=self.app.bot))
+        return self.telegram.calls[before:]
 
 
 def to(calls: list[Call], chat_id: int) -> list[Call]:

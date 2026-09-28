@@ -1,9 +1,13 @@
+"""Ответ администратора на сообщение о проблеме: кнопка «Ответить» (reply_<users.id>) → текст → пользователю."""
 from telegram import Update
 from telegram.ext import (
     ConversationHandler, ContextTypes
 )
 
+from domain.messages import OutMessage, ToUser
 from utils.access import staff_only
+from utils.escape import safe_html
+from utils.telegram_delivery import notify, undelivered_note
 
 REPLY_WAITING = 1
 
@@ -13,36 +17,25 @@ async def reply_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    _, user_id_str = query.data.split("_")
-    target_user_id = int(user_id_str)
+    # сохраняем получателя (users.id) в context.user_data админа
+    context.user_data["reply_to_user"] = int(query.data.rsplit("_", 1)[-1])
 
-    # сохраняем target_user_id в context.user_data админа
-    context.user_data["reply_to_user"] = target_user_id
-
-    await update.effective_chat.send_message(
-        f"✍️ Введите сообщение для пользователя {target_user_id}:"
-    )
+    await update.effective_chat.send_message("✍️ Введите ответ пользователю:")
 
     return REPLY_WAITING
 
 
 async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    target_user_id = context.user_data.get("reply_to_user")
+    target_user_id = context.user_data.pop("reply_to_user", None)
     if not target_user_id:
         await update.message.reply_text("❌ Ошибка: нет пользователя для ответа.")
         return ConversationHandler.END
 
     reply_text = update.message.text.strip()
-
-    # Отправляем пользователю
-    await context.bot.send_message(
-        chat_id=target_user_id,
-        text=f"📩 Ответ администратора:\n\n{reply_text}"
+    delivery = await notify(
+        context.bot, ToUser(target_user_id),
+        OutMessage(f"📩 Ответ администратора:\n\n{safe_html(reply_text)}"), "support_reply",
     )
-
-    # Подтверждаем админу
-    await update.message.reply_text("✅ Ответ отправлен пользователю.")
-
-    # очищаем
-    context.user_data.pop("reply_to_user", None)
+    note = undelivered_note(delivery, who="Пользователь")
+    await update.message.reply_text(note.strip() or "✅ Ответ отправлен пользователю.")
     return ConversationHandler.END

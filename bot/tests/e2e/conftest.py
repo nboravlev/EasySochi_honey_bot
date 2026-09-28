@@ -33,7 +33,7 @@ STRANGER = Person(6001, "Посторонний")
 USER_TABLES = (
     "tasting_signups, tasting_events, order_packages, order_delivery, orders, sessions, "
     "productsize_images, images, product_sizes, products, product_types, user_identities, users, sources, "
-    "shop_channels"
+    "shop_channels, notifications"
 )
 STOREFRONT = "kraspolhoney"
 SHOP_B = "test-shop-b"
@@ -124,6 +124,13 @@ async def query(sql: str, **params):
         result = (await conn.execute(text(sql), params)).all()
     await engine.dispose()
     return result
+
+
+async def execute(sql: str, **params) -> None:
+    engine = create_async_engine(get_db_settings().database_url, poolclass=NullPool)
+    async with engine.begin() as conn:
+        await conn.execute(text(sql), params)
+    await engine.dispose()
 
 
 async def start_bot(state_file) -> Bot:

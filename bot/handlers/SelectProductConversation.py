@@ -10,8 +10,9 @@ from utils.message_tricks import add_message_to_cleanup, cleanup_messages,send_m
 from utils.keyboard_builder import get_product_sizes_keyboard, build_order_keyboard
 from utils.escape import safe_html
 from domain.enums import OrderStatus
+from domain.messages import Button, OutMessage, ToShopStaff
 from utils.constants import MAX_COMMENT_LENGTH
-from services import catalog, order_texts, shops
+from services import catalog, notifications, order_texts, shops
 from services.orders import (
     CommentTooLong,
     OrderError,
@@ -23,7 +24,7 @@ from services.orders import (
     transition,
 )
 from utils.access import user_id_for_telegram
-from utils.telegram_delivery import send_to_shop_staff
+from utils.telegram_delivery import deliver, log_no_channel
 
 NOT_REGISTERED_TEXT = "Чтобы оформить заказ, сначала пройдите короткую регистрацию: /start"
 
@@ -360,15 +361,15 @@ async def proceed_new_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_reply_markup(reply_markup=None)
             transition(order, OrderStatus.CREATED)
 
-            # Сообщение для менеджеров
-            manager_text = order_texts.manager_card(order, f"🔔 Новый заказ #{order.id}🔔")
-
-            # Кнопки
-            buttons = [
-                [InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_order_{order.id}"),
-                InlineKeyboardButton("Отклонить ❌", callback_data=f"decline_order_{order.id}")]
-            ]
-            markup = InlineKeyboardMarkup(buttons)
+            # карточка — в служебный чат магазина, которому принадлежит товар; в очередь вместе с заказом
+            manager_message = OutMessage(
+                order_texts.manager_card(order, f"🔔 Новый заказ #{order.id}🔔"),
+                [[Button("✅ Подтвердить", action=f"confirm_order_{order.id}"),
+                  Button("Отклонить ❌", action=f"decline_order_{order.id}")]],
+            )
+            pending = notifications.ids_of(
+                await notifications.enqueue(session, ToShopStaff(order.shop_id), manager_message, "order_created")
+            )
             await session.commit()
             # Уведомляем клиента
             msg = await send_message(update,
@@ -377,10 +378,9 @@ async def proceed_new_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
 
-            # Сообщение в служебный чат магазина, которому принадлежит товар
-            await send_to_shop_staff(
-                context.bot, order.shop_id, text=manager_text, reply_markup=markup, parse_mode="HTML"
-            )
+            if not pending:
+                log_no_channel(ToShopStaff(order.shop_id), "order_created")
+            await deliver(context.bot, pending)
             structured_logger.info(
                 "new order",
                 user_id = order.customer_id,
