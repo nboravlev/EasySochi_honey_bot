@@ -1,7 +1,5 @@
 from db.db_async import get_async_session
-from db.models.products import Product
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler
-from sqlalchemy import select
 from telegram import (
     Update, 
     InlineKeyboardButton, 
@@ -9,37 +7,33 @@ from telegram import (
     )
 from utils.message_tricks import send_message
 from utils.logging_config import structured_logger
-from utils.access import manager_only, is_owner
+from services import catalog
+from utils.access import get_actor, manager_only
 
 
 @manager_only
 async def confirm_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     message = query.message
-    tg_user_id = update.effective_user.id
+    actor = await get_actor(update)
 
 
     try:
         product_id = int(query.data.split("_")[-1])
 
         async with get_async_session() as session:
-            result = await session.execute(select(Product).where(Product.id == product_id))
-            product = result.scalar_one_or_none()
-
-            # публикует только автор черновика (или владелец); удалённую карточку не воскрешаем
-            if (product is None or not product.is_active
-                    or (product.created_by != tg_user_id and not is_owner(tg_user_id))):
+            # публикует менеджер магазина товара (или владелец платформы); удалённую карточку не воскрешаем
+            product = await catalog.publish(session, product_id, actor.shop_scope)
+            if product is None:
                 await query.answer("Карточка не найдена или недоступна.", show_alert=True)
                 return ConversationHandler.END
             await query.answer()
-
-            product.is_draft = False
             structured_logger.info(
                 "New product",
-                user_id=tg_user_id,
+                user_id=actor.user_id,
                 product_name=product.name,
                 action="product_published",
-                context={'tg_id': product.created_by, 'product_id': product.id}
+                context={'product_id': product.id, 'shop_id': product.shop_id}
             )
             await session.commit()
 
@@ -67,7 +61,7 @@ async def confirm_product_callback(update: Update, context: ContextTypes.DEFAULT
     except Exception as e:
         structured_logger.error(
             f"Critical error in product confirmation: {str(e)}",
-            user_id = update.effective_user.id,
+            user_id = actor.user_id,
             action="confirm_product_error",
             exception=e,
             context={

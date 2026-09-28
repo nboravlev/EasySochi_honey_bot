@@ -1,49 +1,25 @@
-from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from db.models import ProductSize, Size, Image
+
 from db.db_async import get_async_session
+from services import catalog
 
-async def get_product_sizes_keyboard(product_id: int) -> tuple[list[dict], InlineKeyboardMarkup]:
-    """
-    Возвращает:
-    1. Список размеров (для логики) — list[dict]
-    2. InlineKeyboardMarkup с кнопками выбора размера
 
-    Кнопка: "<Размер> – <Цена>₽"
-    callback_data: "select_size_<drink_size_id>"
-    """
+async def product_offers(product_id: int) -> tuple[list[catalog.Offer], str | None]:
+    """Размеры с ценами и обложка товара."""
     async with get_async_session() as session:
-        result = await session.execute(
-            select(
-                ProductSize.id.label("product_size_id"),
-                Size.name.label("size_name"),
-                ProductSize.price
-            )
-            .join(Size, Size.id == ProductSize.size_id)
-            .where(
-                ProductSize.product_id == product_id,
-                ProductSize.is_active.is_(True)
-            )
-            .order_by(ProductSize.price.asc())
-        )
-        sizes = result.mappings().all()
+        return await catalog.offers(session, product_id), await catalog.cover_image(session, product_id)
 
-                # Получаем первое активное фото
-        image_result = await session.execute(
-            select(Image.tg_file_id)
-            .where(Image.product_id == product_id, Image.is_active.is_(True))
-            .order_by(Image.created_at.asc())
-            .limit(1)
-        )
-        image_row = image_result.first()
-        image_file_id = image_row[0] if image_row else None
 
+def offer_label(offer: catalog.Offer) -> str:
+    return f"{offer.size_name}кг – {float(offer.price):.0f}₽"
+
+
+async def get_product_sizes_keyboard(product_id: int) -> tuple[list[catalog.Offer], InlineKeyboardMarkup, str | None]:
+    """Размеры товара, клавиатура выбора размера (select_size_<id>) и обложка для карточки покупателя."""
+    sizes, image_file_id = await product_offers(product_id)
     # Формируем одну строку кнопок для размеров
     size_buttons = [
-        InlineKeyboardButton(
-            f"{s['size_name']}кг – {float(s['price']):.0f}₽",
-            callback_data=f"select_size_{s['product_size_id']}"
-        )
+        InlineKeyboardButton(offer_label(s), callback_data=f"select_size_{s.product_size_id}")
         for s in sizes
     ]
 

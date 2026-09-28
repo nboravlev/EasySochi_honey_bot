@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric
+from sqlalchemy import Column, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
 from db.base import Base
@@ -6,10 +6,14 @@ from db.base import Base
 
 class DeliveryZone(Base):
     __tablename__ = "delivery_zones"
-    __table_args__ = {"schema": "public"}
+    __table_args__ = (
+        UniqueConstraint("shop_id", "name", name="uq_delivery_zones_shop_name"),
+        {"schema": "public"},
+    )
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(100), nullable=False, unique=True)
+    shop_id = Column(Integer, ForeignKey("public.shops.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(100), nullable=False)
     geometry = Column(Geometry(geometry_type="POLYGON", srid=4326), nullable=False)
     cost = Column(Numeric(6, 2), nullable=False)
 

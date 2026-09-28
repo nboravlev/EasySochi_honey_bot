@@ -44,6 +44,9 @@ class Settings(_Base):
     bot_token: str
     admin_chat_id: int
     owner_id: int | None = None
+    # витрина бота: slug магазина, чей каталог показывает этот бот; пусто — общий каталог всех магазинов
+    storefront_shop: str = "kraspolhoney"
+
     # «111,222» или «[111, 222]»; только первичное заполнение users.role_id (services.users.bootstrap_managers)
     manager_list: str = ""
     seller_contact: str | None = None

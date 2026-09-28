@@ -22,30 +22,34 @@ class EventSummary:
     declined: int
 
 
-async def signup(session: AsyncSession, tg_user_id: int) -> tuple[TastingSignup, bool]:
-    """Запись в лист ожидания. Возвращает (запись, создана_сейчас)."""
+async def signup(session: AsyncSession, shop_id: int, user_id: int) -> tuple[TastingSignup, bool]:
+    """Запись в лист ожидания магазина. Возвращает (запись, создана_сейчас)."""
     existing = await session.scalar(
         select(TastingSignup).where(
-            TastingSignup.tg_user_id == tg_user_id, TastingSignup.status == TastingStatus.WAITING
+            TastingSignup.shop_id == shop_id,
+            TastingSignup.user_id == user_id,
+            TastingSignup.status == TastingStatus.WAITING,
         )
     )
     if existing:
         return existing, False
-    record = TastingSignup(tg_user_id=tg_user_id, status=TastingStatus.WAITING)
+    record = TastingSignup(shop_id=shop_id, user_id=user_id, status=TastingStatus.WAITING)
     session.add(record)
     await session.flush()
     return record, True
 
 
 async def invite_waiting(
-    session: AsyncSession, starts_at: datetime, created_by: int | None
+    session: AsyncSession, shop_id: int, starts_at: datetime, created_by: int | None
 ) -> tuple[TastingEvent, list[TastingSignup]]:
-    """Создаёт мероприятие и переводит весь лист ожидания в «приглашён»."""
-    event = TastingEvent(starts_at=starts_at, created_by=created_by)
+    """Создаёт мероприятие магазина и переводит его лист ожидания в «приглашён»."""
+    event = TastingEvent(shop_id=shop_id, starts_at=starts_at, created_by=created_by)
     session.add(event)
     await session.flush()
     waiting = list(
-        (await session.scalars(select(TastingSignup).where(TastingSignup.status == TastingStatus.WAITING))).all()
+        (await session.scalars(select(TastingSignup).where(
+            TastingSignup.shop_id == shop_id, TastingSignup.status == TastingStatus.WAITING
+        ))).all()
     )
     for record in waiting:
         record.event_id = event.id
@@ -54,12 +58,12 @@ async def invite_waiting(
     return event, waiting
 
 
-async def respond(session: AsyncSession, signup_id: int, tg_user_id: int, going: bool) -> TastingSignup | None:
+async def respond(session: AsyncSession, signup_id: int, user_id: int, going: bool) -> TastingSignup | None:
     """Ответ на приглашение. None — если приглашение чужое, не существует или мероприятие уже прошло."""
     record = await session.scalar(
         select(TastingSignup).options(selectinload(TastingSignup.event)).where(TastingSignup.id == signup_id)
     )
-    if (record is None or record.tg_user_id != tg_user_id or record.status not in ANSWERABLE
+    if (record is None or record.user_id != user_id or record.status not in ANSWERABLE
             or record.event is None or record.event.starts_at < utcnow()):
         return None
     record.status = TastingStatus.GOING if going else TastingStatus.DECLINED
@@ -67,16 +71,20 @@ async def respond(session: AsyncSession, signup_id: int, tg_user_id: int, going:
     return record
 
 
-async def waiting_count(session: AsyncSession) -> int:
-    return await session.scalar(
-        select(func.count()).select_from(TastingSignup).where(TastingSignup.status == TastingStatus.WAITING)
-    ) or 0
+async def waiting_count(session: AsyncSession, shop_id: int | None) -> int:
+    """shop_id=None — по всем магазинам."""
+    stmt = select(func.count()).select_from(TastingSignup).where(TastingSignup.status == TastingStatus.WAITING)
+    if shop_id is not None:
+        stmt = stmt.where(TastingSignup.shop_id == shop_id)
+    return await session.scalar(stmt) or 0
 
 
-async def next_event_summary(session: AsyncSession) -> EventSummary | None:
-    event = await session.scalar(
-        select(TastingEvent).where(TastingEvent.starts_at >= utcnow()).order_by(TastingEvent.starts_at).limit(1)
-    )
+async def next_event_summary(session: AsyncSession, shop_id: int | None) -> EventSummary | None:
+    """Ближайшая дегустация магазина (shop_id=None — ближайшая среди всех)."""
+    stmt = select(TastingEvent).where(TastingEvent.starts_at >= utcnow()).order_by(TastingEvent.starts_at).limit(1)
+    if shop_id is not None:
+        stmt = stmt.where(TastingEvent.shop_id == shop_id)
+    event = await session.scalar(stmt)
     if event is None:
         return None
     rows = dict(

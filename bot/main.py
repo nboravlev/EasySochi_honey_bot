@@ -40,6 +40,7 @@ from handlers.ShowInfoHandler import info_callback_handler, info_command
 from handlers.UserSendProblemHandler import problem_handler
 from db.db_async import get_async_session
 from services.orders import expire_stale_drafts
+from services.shops import bootstrap_storefront, storefront_shop_id
 from services.users import bootstrap_managers
 from utils.logging_config import bind_update_context, setup_logging, structured_logger
 
@@ -59,7 +60,7 @@ async def bind_log_context(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Группа -1: контекст апдейта для всех записей лога, сделанных при его обработке."""
     bind_update_context(
         update_id=update.update_id,
-        user_id=update.effective_user.id if update.effective_user else None,
+        telegram_id=update.effective_user.id if update.effective_user else None,
         chat_id=update.effective_chat.id if update.effective_chat else None,
     )
 
@@ -92,13 +93,16 @@ async def expire_drafts_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def post_init(application: Application) -> None:
     settings = get_settings()
 
-    # первый запуск: MANAGER_LIST из .env → users.role_id (дальше менеджеров назначает владелец)
+    # первый запуск после миграций: служебный чат и телефон витрины — из ADMIN_CHAT_ID / SELLER_CONTACT,
+    # MANAGER_LIST — менеджеры витрины. Дальше всё хранится в БД (shop_channels, users.role_id/shop_id).
     async with get_async_session() as session:
-        promoted = await bootstrap_managers(session, settings.manager_ids - {settings.owner_id})
+        filled = await bootstrap_storefront(session, settings.admin_chat_id, settings.seller_contact)
+        storefront_id = await storefront_shop_id(session)
+        promoted = await bootstrap_managers(session, settings.manager_ids - {settings.owner_id}, storefront_id)
         await session.commit()
-    if promoted:
-        structured_logger.info("Managers bootstrapped from MANAGER_LIST", action="managers_bootstrap",
-                               context={"count": promoted})
+    if filled or promoted:
+        structured_logger.info("Storefront bootstrapped from .env", action="storefront_bootstrap",
+                               context={"filled": filled, "managers": promoted})
 
     # Настройка меню команд (синяя плашка); владельцу — ещё и управление менеджерами
     await application.bot.set_my_commands(USER_COMMANDS)
@@ -161,7 +165,7 @@ def build_application(
     # глобальные обработчики
     app.add_handler(CommandHandler("info", info_command), group=0)
     app.add_handler(CallbackQueryHandler(route_after_login, pattern="^back_menu$"), group=0)
-    app.add_handler(CallbackQueryHandler(handle_show_map, pattern="^show_map$"), group=0)
+    app.add_handler(CallbackQueryHandler(handle_show_map, pattern=r"^show_map(_\d+)?$"), group=0)
     app.add_handler(CallbackQueryHandler(handle_honey_try, pattern="^honey_try$"), group=0)
     app.add_handler(CallbackQueryHandler(order_confirmation, pattern=r"^confirm_order_\d+$"), group=0)
     app.add_handler(CallbackQueryHandler(order_ready_handler, pattern=r"^order_ready_\d+$"), group=0)

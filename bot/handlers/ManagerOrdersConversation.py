@@ -17,7 +17,7 @@ from utils.message_tricks import cleanup_messages
 
 
 from utils.access import manager_only
-from utils.access import is_owner
+from utils.access import get_actor
 
 from domain.enums import OrderStatus
 
@@ -40,8 +40,8 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
     """
     query = update.callback_query
     data = query.data if query else ""
-    user_tg_id = update.effective_user.id if update.effective_user else None
-    is_admin = is_owner(user_tg_id)
+    # менеджер видит заказы своего магазина, владелец платформы — всех
+    shop_scope = (await get_actor(update)).shop_scope
     context.user_data["from_orders_list"] = True
     # --- фильтры статусов ---
     status_filters = {
@@ -64,13 +64,13 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
         # ✅ Первичный вызов — из меню или напрямую (без query)
         # показываем первый непустой список: новые → в работе → архив
         current_filter = ORDER_STATUS_CREATED
-        orders = await fetch_seller_orders(user_tg_id, is_admin, [ORDER_STATUS_CREATED])
+        orders = await fetch_seller_orders(shop_scope, [ORDER_STATUS_CREATED])
         if not orders:
             current_filter = ORDER_STATUS_PROCESSING
-            orders = await fetch_seller_orders(user_tg_id, is_admin, [ORDER_STATUS_PROCESSING])
+            orders = await fetch_seller_orders(shop_scope, [ORDER_STATUS_PROCESSING])
         if not orders:
             current_filter = None
-            orders = await fetch_seller_orders(user_tg_id, is_admin, archive_statuses)
+            orders = await fetch_seller_orders(shop_scope, archive_statuses)
         context.user_data["seller_orders"] = orders
         context.user_data["current_index"] = 0
         context.user_data["current_filter"] = current_filter
@@ -78,7 +78,7 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
     elif data.startswith(REFRESH_PREFIXES):
         # заказ только что сменил статус — перечитываем текущий фильтр, позицию сохраняем
         statuses = [current_filter] if current_filter else archive_statuses
-        context.user_data["seller_orders"] = await fetch_seller_orders(user_tg_id, is_admin, statuses)
+        context.user_data["seller_orders"] = await fetch_seller_orders(shop_scope, statuses)
 
     elif data.startswith("owner_order_next_") or data.startswith("owner_order_prev_"):
         # ✅ Навигация по заказам
@@ -100,10 +100,10 @@ async def handle_seller_orders(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data["current_filter"] = current_filter
 
         if filter_value:
-            orders = await fetch_seller_orders(user_tg_id, is_admin, [filter_value])
+            orders = await fetch_seller_orders(shop_scope, [filter_value])
         else:
 
-            orders = await fetch_seller_orders(user_tg_id, is_admin, archive_statuses)
+            orders = await fetch_seller_orders(shop_scope, archive_statuses)
 
         context.user_data["seller_orders"] = orders
         context.user_data["current_index"] = 0

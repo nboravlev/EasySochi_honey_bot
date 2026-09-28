@@ -13,15 +13,15 @@ from db.db_async import get_async_session
 from services import tasting
 from services.stats import manager_stats_message
 from utils.timeutils import utcnow
-from utils.user_session_lastorder import create_user, get_user_by_tg_id
+from utils.telegram_users import get_user_by_tg_id, register_telegram_user
 
 from utils.escape import safe_html
 from utils.message_tricks import add_message_to_cleanup, cleanup_messages, send_message
 
 from utils.logging_config import structured_logger
 
-from utils.access import is_manager, is_owner
-from utils.constants import APIARY_ADDRESS, APIARY_LOCATION
+from services import shops
+from utils.access import Actor, get_actor
 
 MAX_FIRSTNAME_LENGTH = 50  # users.firstname VARCHAR(50)
 
@@ -31,11 +31,12 @@ WELCOME_PHOTO = Path(__file__).resolve().parents[1] / "static" / "images" / "pho
 FIRST_ENTRY_TEXT = ("Уважаемый Гость\n"
         "Вас приветствует медовый чат-бот 🤖 KrasPolHoney 🍯\n"
         "Если вы впервые у нас, пройдите пожалуйста короткую регистрацию")
-WELCOME_TEXT = ("Медовый чат-бот, чтобы выбрать и приобрести продукцию "
+# адрес подставляется из точки самовывоза витрины (shop_locations)
+WELCOME_TEXT_TEMPLATE = ("Медовый чат-бот, чтобы выбрать и приобрести продукцию "
                 "локальной краснополянской пасеки, "
                 "на которой кавказская пчела 🐝 производит настоящий горный мед!🍯\n\n"
                 "Чтобы убедиться в этом лично, посетите бесплатную дегустацию!\n\n"
-                f"Пасека расположена по адресу {APIARY_ADDRESS}")
+                "Пасека расположена по адресу {address}")
 
 
 
@@ -101,7 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 action="start_command_error",
                 exception=e,
                 context={
-                    'tg_user_id': tg_user.id,
+                    'telegram_id': tg_user.id,
                     'error_type': type(e).__name__
                 }
             )
@@ -283,7 +284,7 @@ async def handle_phone_registration(update: Update, context: ContextTypes.DEFAUL
             }
         )
             
-        user = await create_user(tg_user, first_name, phone)
+        user = await register_telegram_user(tg_user, first_name, phone)
         # Уведомление о регистрации по рефералке
 
         # Log successful registration
@@ -339,13 +340,14 @@ async def route_after_login(update: Update, context: ContextTypes.DEFAULT_TYPE, 
             return ConversationHandler.END
 
     try:
-        if await is_manager(user.tg_user_id):
-            return await show_manager_menu(update, context, user)
+        actor = await get_actor(update)
+        if actor and actor.is_manager:
+            return await show_manager_menu(update, context, user, actor)
         return await show_customer_menu(update, context, user)
     except Exception as e:
         structured_logger.error(
             f"Error in handle route_after_logging: {str(e)}",
-            user_id=user.tg_user_id,
+            user_id=user.id,
             action="route_after_login_error",
             exception=e
         )
@@ -354,17 +356,15 @@ async def route_after_login(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         return ConversationHandler.END
 
 
-async def show_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user):
-    # владелец видит статистику по всем товарам, менеджер — по своим
+async def show_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, user, actor: Actor):
+    # менеджер видит статистику своего магазина, владелец платформы — по всем
     async with get_async_session() as session:
-        stats_text = await manager_stats_message(
-            session, seller_id=None if is_owner(user.tg_user_id) else user.tg_user_id
-        )
+        stats_text = await manager_stats_message(session, shop_id=actor.shop_scope)
     await cleanup_messages(context)
     keyboard = [
         [InlineKeyboardButton("✍🏻Добавить мед", callback_data="honey_add"),
         InlineKeyboardButton("🗂 Мой мед", callback_data="honey_get")],
-        [InlineKeyboardButton("📨 Мои заказы", callback_data=f"honey_orders_{user.tg_user_id}"),
+        [InlineKeyboardButton("📨 Мои заказы", callback_data=f"honey_orders_{user.id}"),
         InlineKeyboardButton("📣 Приглашение ", callback_data="honey_invite")]
     ]
     # менеджер, назначенный до первого /start, ещё без имени в БД
@@ -394,14 +394,14 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
             # effective_message: меню открывается и командой, и колбэком back_menu
             msg = await update.effective_chat.send_photo(
                 photo=f,
-                caption=WELCOME_TEXT,
+                caption=await welcome_text(),
                 reply_markup=keyboard
             )
             await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
 
         structured_logger.info(
             "Customer menu rendered successfully",
-            user_id=user.tg_user_id,
+            user_id=user.id,
             action="show_customer_menu_end",
 
         )
@@ -411,7 +411,7 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
     except Exception as e:
         structured_logger.error(
             f"Error in show_customer_menu: {str(e)}",
-            user_id=user.tg_user_id,
+            user_id=user.id,
             action="customer_menu_error",
             exception=e
         )
@@ -419,18 +419,39 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return ConversationHandler.END
 
 
+async def welcome_text() -> str:
+    """Приветствие витрины с адресом её основной точки самовывоза."""
+    async with get_async_session() as session:
+        shop_id = await shops.storefront_shop_id(session)
+        location = await shops.pickup_location(session, shop_id) if shop_id else None
+    return WELCOME_TEXT_TEMPLATE.format(address=location.address if location else "уточните у продавца")
+
+
 async def handle_show_map(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """show_map_<id точки> — точка из заказа; show_map — основная точка самовывоза витрины."""
     query = update.callback_query
     await query.answer()
 
+    suffix = query.data.removeprefix("show_map").lstrip("_")
+    async with get_async_session() as session:
+        if suffix.isdigit():
+            location_id = int(suffix)
+        else:
+            shop_id = await shops.storefront_shop_id(session)
+            location = await shops.pickup_location(session, shop_id) if shop_id else None
+            location_id = location.id if location else None
+        point = await shops.location_point(session, location_id) if location_id else None
+
+    if point is None:
+        await update.effective_chat.send_message("Координаты точки не указаны — уточните адрес у продавца.")
+        return ConversationHandler.END
     # Отправляем встроенную карту
-    latitude, longitude = APIARY_LOCATION
-    await update.effective_chat.send_location(latitude=latitude, longitude=longitude)
+    await update.effective_chat.send_location(latitude=point.latitude, longitude=point.longitude)
     return ConversationHandler.END
 
 
 async def handle_honey_try(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Запись в лист ожидания дегустации; приглашение придёт, когда менеджер назначит дату."""
+    """Запись в лист ожидания дегустации магазина-витрины; приглашение придёт, когда менеджер назначит дату."""
     query = update.callback_query
     user = await get_user_by_tg_id(update.effective_user.id)
     if user is None:
@@ -439,12 +460,16 @@ async def handle_honey_try(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with get_async_session() as session:
-            record, created = await tasting.signup(session, user.tg_user_id)
+            shop_id = await shops.storefront_shop_id(session)
+            if shop_id is None:
+                await query.answer("Дегустации проводят магазины — откройте витрину магазина.", show_alert=True)
+                return ConversationHandler.END
+            record, created = await tasting.signup(session, shop_id, user.id)
             await session.commit()
     except Exception as e:
         structured_logger.error(
             f"Error in sign up for tasting: {str(e)}",
-            user_id=user.tg_user_id,
+            user_id=user.id,
             action="tasting_signup_error",
             exception=e
         )
@@ -460,7 +485,7 @@ async def handle_honey_try(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Ожидайте уведомления, бот пришлет приглашение за несколько дней.")
     structured_logger.info(
         "User signed up for tasting",
-        user_id=user.tg_user_id,
+        user_id=user.id,
         action="tasting_signup" if created else "tasting_signup_duplicate",
         context={"signup_id": record.id},
     )

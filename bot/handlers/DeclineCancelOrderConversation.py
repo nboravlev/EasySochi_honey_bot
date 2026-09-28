@@ -6,10 +6,11 @@ from db.db_async import get_async_session
 from domain.order_flow import InvalidTransition
 from services import order_texts
 from services.orders import MAX_REASON_LENGTH, decline, get_order
-from utils.access import staff_only
+from utils.access import can_manage_shop, get_actor, staff_only
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
 from utils.message_tricks import cleanup_messages
+from utils.telegram_delivery import send_to_user
 
 DECLINE_REASON = 1
 SKIP_REASON_BUTTON = "отправка причины"
@@ -47,8 +48,12 @@ async def booking_decline_reason(update: Update, context: ContextTypes.DEFAULT_T
         if order is None:
             await update.message.reply_text("❌ Заказ не найден.", reply_markup=ReplyKeyboardRemove())
             return ConversationHandler.END
+        if not await can_manage_shop(update, order.shop_id):
+            await update.message.reply_text("🚫 Этот заказ принадлежит другому магазину.", reply_markup=ReplyKeyboardRemove())
+            return ConversationHandler.END
+        actor = await get_actor(update)
         try:
-            decline(order, reason, actor_id=update.effective_user.id)
+            decline(order, reason, actor_id=actor.user_id if actor else None)
         except InvalidTransition:
             await update.message.reply_text(
                 f"⛔ Нельзя отклонить заказ в статусе <b>{safe_html(order.status.name)}</b>.",
@@ -60,18 +65,13 @@ async def booking_decline_reason(update: Update, context: ContextTypes.DEFAULT_T
 
     structured_logger.info(
         "Order declined", order_id=order.id, action="order_declined",
-        context={"customer_id": order.tg_user_id, "reason_length": len(reason)},
+        context={"customer_id": order.customer_id, "shop_id": order.shop_id, "reason_length": len(reason)},
     )
-    try:
-        await context.bot.send_message(
-            chat_id=order.tg_user_id, text=order_texts.customer_declined(order), parse_mode="HTML"
-        )
+    if await send_to_user(
+        context.bot, order.customer_id, text=order_texts.customer_declined(order), parse_mode="HTML"
+    ):
         confirm_text = "‼️ Заказ отклонен, гость уведомлен."
-    except Exception as exc:
-        structured_logger.warning(
-            "Failed to notify customer about decline", order_id=order.id,
-            action="order_notify_failed", context={"error": str(exc)},
-        )
+    else:
         confirm_text = "‼️ Заказ отклонен, но гость не получил уведомление (возможно, заблокировал бота)."
 
     await update.message.reply_text(confirm_text, reply_markup=ReplyKeyboardRemove())

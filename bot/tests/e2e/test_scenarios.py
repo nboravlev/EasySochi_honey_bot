@@ -12,11 +12,15 @@ from .conftest import (
     BUYER,
     MANAGER,
     OWNER,
+    SHOP_B,
+    STAFF_CHAT_B,
     STRANGER,
+    create_second_shop,
     query,
     register,
     start_bot,
     stop_bot,
+    user_value,
 )
 from .harness import alerts, all_text, button, to
 
@@ -60,7 +64,7 @@ async def test_registration_then_menu_and_restart_command(bot):
     # раньше диалог застревал в ASK_PHONE и /start не работал 5 минут
     calls = await bot.send(BUYER, "/start")
     assert "Медовый чат-бот" in all_text(calls)
-    assert await query("SELECT firstname FROM users WHERE tg_user_id = :id", id=BUYER.id) == [("Анна",)]
+    assert await user_value("firstname", BUYER) == "Анна"
 
 
 async def test_order_from_catalog_to_handover(bot, catalog):
@@ -132,22 +136,64 @@ async def test_stranger_cannot_use_manager_actions(bot, catalog):
     assert "Недостаточно прав" in all_text(calls)
 
 
-async def test_owner_appoints_and_removes_manager(bot):
+async def test_owner_appoints_and_removes_manager(bot, catalog):
     await register(BUYER)
     calls = await bot.send(OWNER, f"/manager_add @{BUYER.username}")
-    assert "теперь менеджер" in all_text(to(calls, OWNER.id))
-    assert "права менеджера" in all_text(to(calls, BUYER.id))
-    assert await query("SELECT role_id FROM users WHERE tg_user_id = :id", id=BUYER.id) == [(Role.MANAGER,)]
+    assert "Теперь менеджер магазина «KrasPolHoney»" in all_text(to(calls, OWNER.id))
+    assert "права менеджера магазина «KrasPolHoney»" in all_text(to(calls, BUYER.id))
+    assert await user_value("role_id", BUYER) == Role.MANAGER
+    assert await user_value("shop_id", BUYER) == catalog.shop_id
 
     calls = await bot.send(BUYER, "/honey_add")                   # новый менеджер сразу получает доступ
     assert "Введите название продукта" in all_text(calls)
     await bot.send(BUYER, "/cancel")
 
     calls = await bot.send(OWNER, "/managers")
-    calls = await bot.click(OWNER, button(calls, f"mgr_remove_{BUYER.id}"))
-    assert await query("SELECT role_id FROM users WHERE tg_user_id = :id", id=BUYER.id) == [(Role.USER,)]
+    calls = await bot.click(OWNER, button(calls, f"mgr_remove_{await user_value('id', BUYER)}"))
+    assert await user_value("role_id", BUYER) == Role.USER
     calls = await bot.send(BUYER, "/honey_add")
     assert "Недостаточно прав" in all_text(calls)
+
+
+# --- несколько магазинов
+
+OTHER_MANAGER = STRANGER   # в этих сценариях — менеджер магазина Б
+
+
+async def test_other_shop_staff_cannot_touch_order(bot, catalog):
+    await register(BUYER)
+    await create_second_shop(OTHER_MANAGER)
+    order_id = await place_order(bot, catalog)
+
+    # служебный чат магазина Б и его менеджер в личке — заказ витрины им не принадлежит
+    calls = await bot.click(OTHER_MANAGER, f"confirm_order_{order_id}", chat_id=STAFF_CHAT_B)
+    assert any("Недостаточно прав" in a for a in alerts(calls))
+    calls = await bot.click(OTHER_MANAGER, f"confirm_order_{order_id}")
+    assert any("Недостаточно прав" in a for a in alerts(calls))
+    assert not to(calls, BUYER.id)
+    assert await order_status(order_id) == OrderStatus.CREATED
+
+    # свой служебный чат — может
+    await bot.click(ADMIN_CHAT_MEMBER, f"confirm_order_{order_id}", chat_id=ADMIN_CHAT_ID)
+    assert await order_status(order_id) == OrderStatus.PROCESSING
+
+
+async def test_manager_sees_only_own_shop_products(bot, catalog):
+    await create_second_shop(OTHER_MANAGER)
+    calls = await bot.click(OTHER_MANAGER, "honey_get")
+    assert "Горный мёд" not in all_text(calls) and "товаров не найдено" in all_text(calls)
+    calls = await bot.click(MANAGER, "honey_get")
+    assert "Горный мёд" in all_text(calls)
+
+
+async def test_owner_appoints_manager_to_other_shop(bot, catalog):
+    await register(BUYER)
+    shop_b = await create_second_shop(OTHER_MANAGER)
+    calls = await bot.send(OWNER, f"/manager_add @{BUYER.username} {SHOP_B}")
+    assert "Теперь менеджер магазина «Магазин Б»" in all_text(to(calls, OWNER.id))
+    assert await user_value("shop_id", BUYER) == shop_b
+    calls = await bot.send(OWNER, "/manager_add @nobody_here no-such-shop")
+    assert "Магазин не найден" in all_text(calls)
 
 
 # --- дегустации
@@ -167,7 +213,8 @@ async def test_tasting_signup_invite_and_rsvp(bot):
 
     calls = await bot.click(BUYER, button(invite, "tasting_yes_"))
     assert any("Ждём вас" in a for a in alerts(calls))
-    assert await query("SELECT status FROM tasting_signups WHERE tg_user_id = :id", id=BUYER.id) == \
+    buyer_id = await user_value("id", BUYER)
+    assert await query("SELECT status FROM tasting_signups WHERE user_id = :id", id=buyer_id) == \
         [(TastingStatus.GOING.value,)]
 
 

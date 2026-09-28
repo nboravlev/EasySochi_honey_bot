@@ -26,7 +26,7 @@ registration_conversation = ConversationHandler(
         ],
         ASK_PHONE: [MessageHandler(filters.TEXT | filters.CONTACT, handle_phone_registration)],
         MAIN_MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND,route_after_login),
-                    CallbackQueryHandler(handle_show_map, pattern="^show_map$")
+                    CallbackQueryHandler(handle_show_map, pattern=r"^show_map(_\d+)?$")
         ]
     },
     fallbacks=[

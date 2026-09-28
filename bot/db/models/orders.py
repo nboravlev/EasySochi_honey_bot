@@ -5,7 +5,7 @@ from sqlalchemy import (
     String,
     Numeric,
     CheckConstraint,
-    DateTime,Boolean, text, BIGINT
+    DateTime, Boolean, text,
 )
 from sqlalchemy.orm import relationship
 from db.base import Base
@@ -22,13 +22,11 @@ class Order(Base):
 
     id = Column(Integer, primary_key=True)
     
-    tg_user_id = Column(BIGINT, 
-                    ForeignKey("public.users.tg_user_id", ondelete="RESTRICT"),
-                    nullable = False, unique = False)
-    manager_id = Column(
-        BIGINT,
-        ForeignKey("public.users.tg_user_id", ondelete="SET NULL"),
-        nullable=True, unique = False)
+    customer_id = Column(Integer, ForeignKey("public.users.id", ondelete="RESTRICT"), nullable=False, index=True)
+    manager_id = Column(Integer, ForeignKey("public.users.id", ondelete="SET NULL"), nullable=True)
+    shop_id = Column(Integer, ForeignKey("public.shops.id", ondelete="RESTRICT"), nullable=False, index=True)
+    # точка выдачи (самовывоз) или отгрузки (доставка)
+    location_id = Column(Integer, ForeignKey("public.shop_locations.id", ondelete="SET NULL"), nullable=True)
     product_size_id = Column(Integer, ForeignKey("public.product_sizes.id", ondelete="RESTRICT"), nullable=False)
     status_id = Column(Integer, ForeignKey("public.order_statuses.id", ondelete="RESTRICT"), nullable=False)    
     product_count = Column(Integer, nullable=False)    
@@ -45,7 +43,7 @@ class Order(Base):
     user = relationship(
         "User",
         back_populates="orders",
-        foreign_keys=[tg_user_id],   # <── указываем, какой FK использовать
+        foreign_keys=[customer_id],
     )
     manager = relationship(
         "User",
@@ -56,9 +54,11 @@ class Order(Base):
     status = relationship("OrderStatus", back_populates="orders")
     order_packages = relationship("OrderPackage", back_populates="order")
     session = relationship("Session",back_populates="orders")
+    shop = relationship("Shop")
+    location = relationship("ShopLocation")
     delivery = relationship("OrderDelivery", back_populates="order")
 
 
     def __repr__(self):
-        return f"<Order(id={self.id}, product_size_id={self.product_size_id}, user={self.tg_user_id}, status={self.status_id})>"
+        return f"<Order(id={self.id}, product_size_id={self.product_size_id}, customer={self.customer_id}, shop={self.shop_id}, status={self.status_id})>"
 

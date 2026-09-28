@@ -7,12 +7,12 @@ from telegram.ext import ContextTypes, ConversationHandler
 
 from db.db_async import get_async_session
 from handlers.RegistrationConversation import route_after_login
-from services import tasting
-from utils.access import manager_only
-from utils.constants import APIARY_ADDRESS
+from services import shops, tasting
+from utils.access import get_actor, manager_only, user_id_for_telegram
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
 from utils.message_tricks import cleanup_messages, send_message
+from utils.telegram_delivery import send_to_user
 from utils.timeutils import BUSINESS_TZ, format_local, utcnow
 
 (ASK_DATE,
@@ -22,12 +22,12 @@ from utils.timeutils import BUSINESS_TZ, format_local, utcnow
 SEND_INTERVAL_SEC = 0.05
 
 
-def invitation_text(starts_at: datetime) -> str:
+def invitation_text(starts_at: datetime, address: str | None) -> str:
     return (
         f"🍯 <b>Приглашение на дегустацию мёда!</b>\n\n"
         f"Уважаемые гости, приглашаем вас посетить нашу дегустацию мёда "
         f"<b>{format_local(starts_at, '%d.%m.%Y')}</b> в <b>{format_local(starts_at, '%H:%M')}</b> "
-        f"по адресу: <i>Сочи, {safe_html(APIARY_ADDRESS)}</i> 🐝\n\n"
+        f"по адресу: <i>{safe_html(address) or 'уточните у продавца'}</i> 🐝\n\n"
         f"Придёте? Ответьте кнопкой ниже — так мы подготовим нужное количество мёда 💬"
     )
 
@@ -76,31 +76,30 @@ async def honey_invite_ask_time(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("❌ Это время уже прошло. Введите дату заново (ДД.ММ.ГГГГ):")
         return ASK_DATE
 
+    # дегустацию проводит магазин менеджера (у владельца платформы — магазин-витрина)
+    actor = await get_actor(update)
+    shop_id = await actor.work_shop_id()
+    if shop_id is None:
+        await update.message.reply_text("Не удалось определить магазин для дегустации.", reply_markup=ReplyKeyboardRemove())
+        return ConversationHandler.END
+
     async with get_async_session() as session:
-        if await tasting.waiting_count(session) == 0:
+        if await tasting.waiting_count(session, shop_id) == 0:
             await update.message.reply_text("❗ Нет пользователей для рассылки.", reply_markup=ReplyKeyboardRemove())
             return ConversationHandler.END
-        event, invited = await tasting.invite_waiting(session, starts_at, created_by=update.effective_user.id)
+        event, invited = await tasting.invite_waiting(session, shop_id, starts_at, created_by=actor.user_id)
+        location = await shops.pickup_location(session, shop_id)
         await session.commit()
 
     sent_count = failed = 0
-    message_text = invitation_text(starts_at)
+    message_text = invitation_text(starts_at, location.address if location else None)
     for record in invited:
-        try:
-            await context.bot.send_message(
-                chat_id=record.tg_user_id,
-                text=message_text,
-                parse_mode="HTML",
-                reply_markup=rsvp_keyboard(record.id),
-            )
+        delivered = await send_to_user(
+            context.bot, record.user_id, text=message_text, parse_mode="HTML", reply_markup=rsvp_keyboard(record.id)
+        )
+        if delivered:
             sent_count += 1
-        except Exception as e:
-            structured_logger.warning(
-                "Failed to send invite",
-                user_id=record.tg_user_id,
-                action="tasting_invite_failed",
-                context={"error": str(e), "event_id": event.id},
-            )
+        else:
             failed += 1
         await asyncio.sleep(SEND_INTERVAL_SEC)
 
@@ -126,7 +125,8 @@ async def tasting_rsvp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     going = answer == "yes"
 
     async with get_async_session() as session:
-        record = await tasting.respond(session, int(signup_id), update.effective_user.id, going)
+        user_id = await user_id_for_telegram(update.effective_user.id)
+        record = await tasting.respond(session, int(signup_id), user_id, going) if user_id else None
         await session.commit()
 
     if record is None:

@@ -5,9 +5,10 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import Order, ProductSize, Session, Size, User
+from db.models import Order, ProductSize, Session, Size
 from domain.enums import OrderStatus, Role
 from domain.order_flow import check_transition
+from services import shops
 from utils.constants import DRAFT_TTL_HOURS, MAX_COMMENT_LENGTH, MAX_PRODUCT_COUNT
 from utils.timeutils import utcnow
 
@@ -21,6 +22,8 @@ ORDER_DETAILS = (
     selectinload(Order.manager),
     selectinload(Order.status),
     selectinload(Order.session),
+    selectinload(Order.shop),
+    selectinload(Order.location),
 )
 
 
@@ -59,29 +62,19 @@ async def get_order(session: AsyncSession, order_id: int) -> Order | None:
     return result.scalar_one_or_none()
 
 
-async def registered_user_id(session: AsyncSession, tg_user_id: int) -> int | None:
-    """tg_user_id, если человек есть в users, иначе None.
-
-    Кнопки в админ-чате может нажать участник, ни разу не запускавший бота: ссылка orders.manager_id
-    на него нарушила бы внешний ключ, и подтверждение заказа падало бы.
-    """
-    found = await session.scalar(select(User.tg_user_id).where(User.tg_user_id == tg_user_id))
-    return found
-
-
-async def get_customer_draft(session: AsyncSession, order_id: int, tg_user_id: int) -> Order | None:
+async def get_customer_draft(session: AsyncSession, order_id: int, customer_id: int) -> Order | None:
     """Черновик покупателя или None, если заказ чужой или уже оформлен (старые кнопки не должны его менять)."""
     order = await get_order(session, order_id)
-    if order is None or order.tg_user_id != tg_user_id or order.status_id != OrderStatus.DRAFT:
+    if order is None or order.customer_id != customer_id or order.status_id != OrderStatus.DRAFT:
         return None
     return order
 
 
-async def expire_user_drafts(session: AsyncSession, tg_user_id: int) -> int:
+async def expire_user_drafts(session: AsyncSession, customer_id: int) -> int:
     """Закрывает прежние черновики покупателя: у него одновременно не больше одного."""
     result = await session.execute(
         update(Order)
-        .where(Order.tg_user_id == tg_user_id, Order.status_id == OrderStatus.DRAFT)
+        .where(Order.customer_id == customer_id, Order.status_id == OrderStatus.DRAFT)
         .values(status_id=OrderStatus.EXPIRED, updated_at=utcnow())
     )
     return result.rowcount
@@ -97,8 +90,11 @@ async def expire_stale_drafts(session: AsyncSession, older_than: timedelta = tim
     return result.rowcount
 
 
-async def create_draft(session: AsyncSession, tg_user_id: int, product_size_id: int) -> Order:
-    """Черновик заказа на 1 шт. выбранного размера. Прежние черновики покупателя закрываются."""
+async def create_draft(session: AsyncSession, customer_id: int, product_size_id: int) -> Order:
+    """Черновик заказа на 1 шт. выбранного размера в магазине этого товара.
+
+    Точка выдачи — основная точка самовывоза магазина. Прежние черновики покупателя закрываются.
+    """
     result = await session.execute(
         select(ProductSize)
         .options(
@@ -113,15 +109,18 @@ async def create_draft(session: AsyncSession, tg_user_id: int, product_size_id: 
             or not product_size.product.is_active or product_size.product.is_draft):
         raise ProductUnavailable()
 
-    await expire_user_drafts(session, tg_user_id)
+    await expire_user_drafts(session, customer_id)
 
     # сессия покупки — журнал действий покупателя по заказу
-    audit = Session(tg_user_id=tg_user_id, role_id=Role.BUYER, last_action={"event": "order_started"})
+    audit = Session(user_id=customer_id, role_id=Role.BUYER, last_action={"event": "order_started"})
     session.add(audit)
     await session.flush()
 
+    location = await shops.pickup_location(session, product_size.product.shop_id)
     order = Order(
-        tg_user_id=tg_user_id,
+        customer_id=customer_id,
+        shop_id=product_size.product.shop_id,
+        location=location,
         product_size=product_size,
         status_id=OrderStatus.DRAFT,
         product_count=1,

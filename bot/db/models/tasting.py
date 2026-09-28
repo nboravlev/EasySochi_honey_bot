@@ -1,4 +1,4 @@
-from sqlalchemy import BIGINT, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, String, text
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy.orm import relationship
 
 from db.base import Base
@@ -11,8 +11,9 @@ class TastingEvent(Base):
     __table_args__ = {"schema": "public"}
 
     id = Column(Integer, primary_key=True)
+    shop_id = Column(Integer, ForeignKey("public.shops.id", ondelete="CASCADE"), nullable=False)
     starts_at = Column(DateTime(timezone=True), nullable=False)
-    created_by = Column(BIGINT, ForeignKey("public.users.tg_user_id", ondelete="SET NULL"), nullable=True)
+    created_by = Column(Integer, ForeignKey("public.users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     signups = relationship("TastingSignup", back_populates="event")
@@ -28,9 +29,9 @@ class TastingSignup(Base):
         CheckConstraint(
             "status IN ('waiting', 'invited', 'going', 'declined')", name="check_tasting_signup_status"
         ),
-        # в листе ожидания пользователь стоит не больше одного раза
+        # в листе ожидания магазина пользователь стоит не больше одного раза
         Index(
-            "uq_tasting_signups_waiting_user", "tg_user_id",
+            "uq_tasting_signups_waiting_user", "shop_id", "user_id",
             unique=True, postgresql_where=text("status = 'waiting'"),
         ),
         Index("ix_tasting_signups_event_status", "event_id", "status"),
@@ -38,7 +39,8 @@ class TastingSignup(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    tg_user_id = Column(BIGINT, ForeignKey("public.users.tg_user_id", ondelete="CASCADE"), nullable=False)
+    shop_id = Column(Integer, ForeignKey("public.shops.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("public.users.id", ondelete="CASCADE"), nullable=False)
     event_id = Column(Integer, ForeignKey("public.tasting_events.id", ondelete="CASCADE"), nullable=True)
     status = Column(String(20), nullable=False, server_default=text("'waiting'"))
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
@@ -47,4 +49,4 @@ class TastingSignup(Base):
     event = relationship("TastingEvent", back_populates="signups")
 
     def __repr__(self):
-        return f"<TastingSignup(id={self.id}, user={self.tg_user_id}, status={self.status})>"
+        return f"<TastingSignup(id={self.id}, user={self.user_id}, status={self.status})>"

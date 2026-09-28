@@ -4,9 +4,7 @@ from telegram.ext import (
 )
 
 from utils.access import staff_only
-from config import get_settings
 
-ADMIN_CHAT_ID = get_settings().admin_chat_id
 REPLY_WAITING = 1
 
 

@@ -30,3 +30,11 @@ class TastingStatus(StrEnum):
     INVITED = "invited"     # получил приглашение на конкретное мероприятие
     GOING = "going"         # ответил «Приду»
     DECLINED = "declined"   # ответил «Не смогу»
+
+
+class Provider(StrEnum):
+    """Платформа, через которую человек пользуется системой (user_identities, shop_channels)."""
+    TELEGRAM = "telegram"
+    VK = "vk"
+    MAX = "max"
+    WEB = "web"

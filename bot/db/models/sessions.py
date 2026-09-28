@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BIGINT, Boolean, DateTime, ForeignKey, text
+from sqlalchemy import Column, Integer, Boolean, DateTime, ForeignKey, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from db.base import Base
@@ -9,9 +9,7 @@ class Session(Base):
     __table_args__ = {"schema": "public"}
 
     id = Column(Integer, primary_key=True)
-    tg_user_id = Column(BIGINT, 
-                    ForeignKey("public.users.tg_user_id", ondelete="CASCADE"),
-                    nullable = False, unique = False)
+    user_id = Column(Integer, ForeignKey("public.users.id", ondelete="CASCADE"), nullable=False)
 
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=True)
@@ -33,4 +31,4 @@ class Session(Base):
     orders = relationship("Order", back_populates="session")
     
     def __repr__(self):
-        return f"<Session(id={self.id}, user={self.tg_user_id}, role={self.role_id})>"
+        return f"<Session(id={self.id}, user={self.user_id}, role={self.role_id})>"

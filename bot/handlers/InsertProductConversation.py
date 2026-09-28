@@ -1,12 +1,5 @@
 from db.db_async import get_async_session
-from db.models.product_types import ProductType
-from db.models.products import Product
-from db.models.images import Image
-from db.models.product_sizes import ProductSize
-
-from sqlalchemy.orm import selectinload
-
-from sqlalchemy import select
+from services import catalog
 
 from telegram import (
     ReplyKeyboardMarkup, 
@@ -23,9 +16,8 @@ from telegram.ext import (
 from utils.message_tricks import add_message_to_cleanup
 from utils.escape import safe_html
 from utils.full_view_manager import render_card
-from utils.call_size import get_size_id_async
 from utils.preprocess_foto import preprocess_photo_crop_center
-from utils.access import manager_only
+from utils.access import get_actor, manager_only
 from utils.constants import MAX_PRICE, MAX_PRODUCT_NAME_LENGTH
 from utils.validation import parse_price
 from utils.logging_config import structured_logger
@@ -80,7 +72,7 @@ async def handle_object_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["name"] = name
     try:
         async with get_async_session() as session:
-            types = (await session.execute(ProductType.__table__.select())).fetchall()
+            types = await catalog.all_types(session)
             keyboard = [[InlineKeyboardButton(t.name, callback_data=str(t.id))] for t in types]
             reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
@@ -181,69 +173,47 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_photos_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photos = context.user_data.get("photos", [])
-    tg_user_id = context.user_data.get("tg_user_id") or update.effective_user.id
+    actor = await get_actor(update)
     if not photos:
-        structured_logger.warning("No photos uploaded", user_id=tg_user_id)
+        structured_logger.warning("No photos uploaded", user_id=actor.user_id)
         await update.message.reply_text("Вы не загрузили ни одного фото.")
         return PRODUCT_PHOTO
 
+    # товар создаётся в магазине менеджера (у владельца платформы — в магазине-витрине)
+    shop_id = await actor.work_shop_id()
+    if shop_id is None:
+        await update.message.reply_text("Не удалось определить магазин для товара. Обратитесь к владельцу платформы.")
+        return ConversationHandler.END
+
     async with get_async_session() as session:
-        product = Product(
-            name=context.user_data['name'],
-            type_id=context.user_data['type_id'],
-            description=context.user_data['description'],
-            created_by=tg_user_id
-        )
-        session.add(product)
-        await session.flush()
-        structured_logger.info("Product object created in DB session", user_id=tg_user_id)
-
-        for file_id in photos:
-            session.add(Image(product_id=product.id, tg_file_id=file_id))
-            structured_logger.info("Photo linked to product", user_id=tg_user_id, context={"file_id": file_id})
-
-        for item in context.user_data.get("sizes", []):
-            size_name = item["size"]
-            price = item["price"]
-            try:
-                size_id = await get_size_id_async(size_name)
-                session.add(ProductSize(product_id=product.id, size_id=size_id, price=price))
-            except KeyError:
-                structured_logger.error(f"Size {size_name} not found", user_id=tg_user_id)
-                await update.message.reply_text(f"Размер '{size_name}' не найден.")
-                await session.rollback()
-                return ConversationHandler.END
-        await session.flush() 
-        
-        stmt = (
-            select(Product)
-            .where(Product.id == product.id)
-            .options(
-                selectinload(Product.product_sizes).selectinload(ProductSize.sizes),
-                selectinload(Product.images),
-                selectinload(Product.product_type),
+        try:
+            product = await catalog.create_draft_product(
+                session,
+                shop_id=shop_id,
+                author_id=actor.user_id,
+                name=context.user_data["name"],
+                type_id=context.user_data["type_id"],
+                description=context.user_data["description"],
+                prices=[(item["size"], item["price"]) for item in context.user_data.get("sizes", [])],
+                photo_file_ids=photos,
             )
-        )
-        result = await session.execute(stmt)
-        product = result.scalars().first()
-
-        text, _, markup = render_card(product)
-
-        if product.images:
-            await update.message.reply_photo(
-                photo=str(product.images[0].tg_file_id),
-                caption=text,
-                parse_mode="HTML",
-                reply_markup=markup
-            )
-        else:
-            await update.message.reply_text(
-                text=text,
-                parse_mode="HTML",
-                reply_markup=markup
-            )
+        except LookupError as e:
+            structured_logger.error(str(e), user_id=actor.user_id, action="product_create_failed")
+            await update.message.reply_text(f"Не удалось создать карточку: {e}")
+            return ConversationHandler.END
         await session.commit()
 
+    structured_logger.info(
+        "Product draft created", user_id=actor.user_id, action="product_draft_created",
+        context={"product_id": product.id, "shop_id": shop_id, "photos": len(photos)},
+    )
+    text, _, markup = render_card(product)
+    if product.images:
+        await update.message.reply_photo(
+            photo=str(product.images[0].tg_file_id), caption=text, parse_mode="HTML", reply_markup=markup
+        )
+    else:
+        await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=markup)
     return ConversationHandler.END
 
 

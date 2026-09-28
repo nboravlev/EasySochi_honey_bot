@@ -6,14 +6,12 @@ from telegram.ext import (
 )
 from utils.logging_config import structured_logger
 from db.db_async import get_async_session
-from db.models import Product, ProductType
-from sqlalchemy import select
 from utils.message_tricks import add_message_to_cleanup, cleanup_messages,send_message
 from utils.keyboard_builder import get_product_sizes_keyboard, build_order_keyboard
 from utils.escape import safe_html
 from domain.enums import OrderStatus
 from utils.constants import MAX_COMMENT_LENGTH
-from services import order_texts
+from services import catalog, order_texts, shops
 from services.orders import (
     CommentTooLong,
     OrderError,
@@ -24,10 +22,10 @@ from services.orders import (
     set_comment,
     transition,
 )
+from utils.access import user_id_for_telegram
+from utils.telegram_delivery import send_to_shop_staff
 
-from config import get_settings
-
-ADMIN_CHAT_ID = get_settings().admin_chat_id
+NOT_REGISTERED_TEXT = "Чтобы оформить заказ, сначала пройдите короткую регистрацию: /start"
 
 
 # Состояния
@@ -70,12 +68,9 @@ async def start_select_product(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception as e:
             print(f"Не удалось удалить сообщение {last_menu_msg_id}: {e}")
         context.user_data["last_menu_message_id"] = None
-    # Получаем все активные типы напитков
+    # Сорта, в которых есть товары на витрине (или во всех магазинах — в режиме общего каталога)
     async with get_async_session() as session:
-        result = await session.execute(
-            select(ProductType)
-        )
-        types = result.scalars().all()
+        types = await catalog.product_types(session, await shops.storefront_shop_id(session))
 
     if not types:
         await update.effective_chat.send_message("❌ В данный момент нет доступных сортов меда.")
@@ -99,13 +94,8 @@ async def handle_product_type_selection(update: Update, context: ContextTypes.DE
 
     type_id = int(query.data.split("_")[-1])
     context.user_data["product_type_id"] = type_id
-    print(f"DEBUG_СОРТ: {type_id}")
-
     async with get_async_session() as session:
-        result = await session.execute(
-            select(ProductType).where(ProductType.id == type_id)
-        )
-        product_type = result.scalar_one_or_none()
+        product_type = await catalog.get_type(session, type_id)
 
     type_name = product_type.name if product_type else "Неизвестная категория"
 
@@ -121,14 +111,7 @@ async def show_filtered_products(update: Update, context: ContextTypes.DEFAULT_T
     type_id = context.user_data.get("product_type_id")
 
     async with get_async_session() as session:
-        result = await session.execute(
-        select(Product).where(
-        Product.type_id == type_id,
-        Product.is_active.is_(True),
-        Product.is_draft.is_(False)
-        )
-    )
-        products = result.scalars().all()
+        products = await catalog.products_of_type(session, type_id, await shops.storefront_shop_id(session))
 
     if not products:
         await update.effective_chat.send_message("❌ Похоже, мед этого сорта закончился.")
@@ -174,12 +157,15 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
             return PRODUCT_TYPES_SELECTION
 
         context.user_data["selected_size_id"] = product_size_id
-        tg_user_id = update.effective_user.id
+        customer_id = await user_id_for_telegram(update.effective_user.id)
+        if customer_id is None:
+            await update.effective_chat.send_message(NOT_REGISTERED_TEXT)
+            return ConversationHandler.END
 
         async with get_async_session() as session:
             try:
                 # прежние черновики покупателя закрываются: активен только последний
-                order = await create_draft(session, tg_user_id, product_size_id)
+                order = await create_draft(session, customer_id, product_size_id)
                 context.user_data["session_id"] = order.session_id
                 structured_logger.info(
                     "Create order draft",
@@ -202,7 +188,7 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
             except Exception as e:
                 structured_logger.error(
                     f"Error in creation draft order: {str(e)}",
-                    user_id=tg_user_id,
+                    user_id=customer_id,
                     action="Create order draft",
                     exception=e
                 )
@@ -215,7 +201,7 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
                 except Exception as e:
-                    structured_logger.debug(f"Не удалось удалить сообщение {msg_id}: {e}", user_id=tg_user_id)
+                    structured_logger.debug(f"Не удалось удалить сообщение {msg_id}: {e}", user_id=customer_id)
             # очищаем список
             context.user_data["product_messages"] = []
 
@@ -224,14 +210,14 @@ async def handle_size_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=last_menu_msg_id)
                 except Exception as e:
-                    structured_logger.debug(f"Не удалось удалить сообщение {last_menu_msg_id}: {e}", user_id=tg_user_id)
+                    structured_logger.debug(f"Не удалось удалить сообщение {last_menu_msg_id}: {e}", user_id=customer_id)
             # очищаем список
             context.user_data["last_menu_message_id"] = None
             return SELECT_QUANTITY
 
 async def handle_update_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    tg_user_id = update.effective_user.id
+    customer_id = await user_id_for_telegram(update.effective_user.id)
     try:
         _,_, action, order_id_str = query.data.split("_")
         order_id = int(order_id_str)
@@ -243,7 +229,7 @@ async def handle_update_quantity(update: Update, context: ContextTypes.DEFAULT_T
 
     async with get_async_session() as session:
 
-        order = await get_customer_draft(session, order_id, tg_user_id)
+        order = await get_customer_draft(session, order_id, customer_id)
 
         if not order:
             # заказ чужой, уже оформлен или закрыт новым черновиком — старая карточка не должна его менять
@@ -289,7 +275,7 @@ async def customer_comment_handler(update: Update, context: ContextTypes.DEFAULT
 
 async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняем введённый пользователем комментарий и обновляем карточку заказа"""
-    tg_user_id = update.effective_user.id
+    customer_id = await user_id_for_telegram(update.effective_user.id)
     order_id = context.user_data.get("pending_comment_order_id")
 
     if not order_id:
@@ -298,7 +284,7 @@ async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TY
 
     comment_text = update.message.text.strip()
     async with get_async_session() as session:
-        order = await get_customer_draft(session, order_id, tg_user_id)
+        order = await get_customer_draft(session, order_id, customer_id)
 
         if not order:
             context.user_data.pop("pending_comment_order_id", None)
@@ -337,7 +323,7 @@ async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TY
                 parse_mode="HTML"
             )
         except Exception as e:
-            structured_logger.debug(f"Не удалось обновить карточку заказа {last_msg_id}: {e}", user_id=tg_user_id)
+            structured_logger.debug(f"Не удалось обновить карточку заказа {last_msg_id}: {e}", user_id=customer_id)
             # если не нашли старое сообщение — просто шлём новое
             msg = await update.message.reply_text(caption, reply_markup=keyboard, parse_mode="HTML")
             context.user_data["last_order_message_id"] = msg.message_id
@@ -354,14 +340,14 @@ async def save_customer_comment(update: Update, context: ContextTypes.DEFAULT_TY
 async def proceed_new_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Вызывается при нажатии кнопки 'Оплатить'"""
     query = update.callback_query
-    tg_user_id = update.effective_user.id
+    customer_id = await user_id_for_telegram(update.effective_user.id)
 
     try:
         _, order_id_str = query.data.split("_")
         order_id = int(order_id_str)
         async with get_async_session() as session:
             # Достаём заказ с деталями; повторный клик по «Заказать» не должен создавать второй заказ
-            order = await get_customer_draft(session, order_id, tg_user_id)
+            order = await get_customer_draft(session, order_id, customer_id)
             if not order:
                 await query.answer("Этот заказ уже оформлен.", show_alert=True)
                 try:
@@ -391,31 +377,28 @@ async def proceed_new_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await add_message_to_cleanup(context,msg.chat_id,msg.message_id)
 
-            # Сообщение в чат менеджеров
-            await context.bot.send_message(
-                chat_id=ADMIN_CHAT_ID,
-                text=manager_text,
-                reply_markup=markup,
-                parse_mode='HTML'
+            # Сообщение в служебный чат магазина, которому принадлежит товар
+            await send_to_shop_staff(
+                context.bot, order.shop_id, text=manager_text, reply_markup=markup, parse_mode="HTML"
             )
             structured_logger.info(
                 "new order",
-                user_id = order.tg_user_id,
+                user_id = order.customer_id,
                 order_id = order.id,
                 action = "order_created",
                 context = {'item':order.product_size.product.name,
                            'size': order.product_size.sizes.name,
                            'qty': order.product_count,
-                           'amount': order.total_price}
+                           'amount': order.total_price,
+                           'shop_id': order.shop_id}
             )
 
     except Exception as e:
         structured_logger.error(
             f"Error in sending order nitification: {str(e)}",
-            user_id = tg_user_id,
+            user_id = customer_id,
             action="Send new order notification",
             exception=e,
-            context={'admin_chat_id': ADMIN_CHAT_ID}
         )
         await send_message(update,text=("Ошибка при отправке уведомления продавцу."))
 

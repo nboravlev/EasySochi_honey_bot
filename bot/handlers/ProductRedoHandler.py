@@ -1,10 +1,9 @@
 from db.db_async import get_async_session
-from db.models import Product,ProductSize
 from telegram.ext import ContextTypes, CallbackQueryHandler, ConversationHandler
-from sqlalchemy import update as sa_update
 from telegram import Update
 from utils.logging_config import structured_logger
-from utils.access import manager_only, is_owner
+from services import catalog
+from utils.access import get_actor, manager_only
 
 RESTART_TEXT = "🚫 Данные удалены. Начните сначала /honey_add"
 
@@ -13,31 +12,17 @@ RESTART_TEXT = "🚫 Данные удалены. Начните сначала 
 async def redo_product_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     message = query.message
-    tg_user_id = update.effective_user.id
+    actor = await get_actor(update)
 
     try:
         product_id = int(query.data.split("_")[-1])
 
         async with get_async_session() as session:
-            # Сбрасываем флаги товара — только у своей карточки (владелец может любую)
-            product_filter = [Product.id == product_id]
-            if not is_owner(tg_user_id):
-                product_filter.append(Product.created_by == tg_user_id)
-            result = await session.execute(
-                sa_update(Product)
-                .where(*product_filter)
-                .values(is_draft=True, is_active=False)
-            )
-            if result.rowcount == 0:
+            # карточка своего магазина (владелец платформы — любая) и её размеры больше не показываются
+            if not await catalog.discard_draft(session, product_id, actor.shop_scope):
                 await query.answer("Карточка не найдена или недоступна.", show_alert=True)
                 return ConversationHandler.END
             await query.answer()
-            # Сбрасываем размеры
-            await session.execute(
-                sa_update(ProductSize)
-                .where(ProductSize.product_id == product_id)
-                .values(is_active=False)
-            )
 
             await session.commit()
 
@@ -55,7 +40,7 @@ async def redo_product_callback(update: Update, context: ContextTypes.DEFAULT_TY
     except Exception as exc:
         structured_logger.error(
             "Error in redo product",
-            user_id=tg_user_id,
+            user_id=actor.user_id,
             action="product_redo_error",
             exception=exc
         )

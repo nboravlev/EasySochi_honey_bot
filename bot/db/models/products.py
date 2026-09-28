@@ -9,7 +9,6 @@ from sqlalchemy import (
     Numeric,
     CheckConstraint,
     text,
-    BIGINT
 )
 from sqlalchemy.orm import relationship
 from db.base import Base
@@ -29,10 +28,10 @@ class Product(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
-    created_by = Column(BIGINT, 
-                    ForeignKey("public.users.tg_user_id", ondelete="CASCADE"),
-                    nullable = False, unique = False)
-    updated_by = Column(BIGINT,nullable = True, unique = False)
+    # товар принадлежит магазину; автор карточки — для истории
+    shop_id = Column(Integer, ForeignKey("public.shops.id", ondelete="RESTRICT"), nullable=False, index=True)
+    created_by = Column(Integer, ForeignKey("public.users.id", ondelete="SET NULL"), nullable=True)
+    updated_by = Column(Integer, ForeignKey("public.users.id", ondelete="SET NULL"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     is_draft = Column(Boolean, nullable=False, default=True, server_default=text("true"))  
     quantity = Column(Numeric(5,1),nullable=True)
@@ -55,9 +54,8 @@ class Product(Base):
         back_populates="product",
         lazy="selectin"
     )
-    user = relationship("User",
-                        back_populates="products",
-                        lazy="selectin")
+    shop = relationship("Shop")
+    author = relationship("User", foreign_keys=[created_by])
 
 
     def __repr__(self):

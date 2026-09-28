@@ -4,10 +4,11 @@ from telegram.ext import (
 )
 
 from utils.escape import safe_html
-from config import get_settings
+from db.db_async import get_async_session
+from services import shops
+from utils.telegram_delivery import send_to_shop_staff
 
 
-ADMIN_CHAT_ID = get_settings().admin_chat_id
 
 SEND_PROBLEM = 1
 
@@ -31,13 +32,15 @@ async def process_problem(update: Update, context: ContextTypes.DEFAULT_TYPE):
     problem_text = update.message.text.strip()
     admin_message, keyboard = _make_admin_message(user, problem_text)
 
-    # Отправляем в админскую группу
-    await context.bot.send_message(
-        chat_id=ADMIN_CHAT_ID,
-        text=admin_message,
-        parse_mode="HTML",
-        reply_markup=keyboard
-    )
+    # Отправляем в служебный чат магазина-витрины
+    async with get_async_session() as session:
+        shop_id = await shops.storefront_shop_id(session)
+    if shop_id is None or not await send_to_shop_staff(
+        context.bot, shop_id, text=admin_message, parse_mode="HTML", reply_markup=keyboard
+    ):
+        await update.message.reply_text("Не удалось передать сообщение. Попробуйте позже.")
+        context.user_data.pop("awaiting_problem", None)
+        raise ApplicationHandlerStop(ConversationHandler.END)
 
     await update.message.reply_text("✅ Сообщение передано администратору. Спасибо!")
     context.user_data.pop("awaiting_problem", None)

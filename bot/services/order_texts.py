@@ -2,7 +2,6 @@
 from decimal import Decimal
 
 from db.models import Order
-from utils.constants import APIARY_ADDRESS
 from utils.escape import safe_html
 from utils.timeutils import format_local
 
@@ -17,6 +16,13 @@ def rub(amount: Decimal | int | float | None) -> str:
 def product_line(order: Order) -> str:
     size = order.product_size
     return f"{safe_html(size.product.name)} ({size.sizes.name}кг × {order.product_count})"
+
+
+def pickup_address(order: Order) -> str:
+    """Адрес точки выдачи заказа (задаётся магазином в shop_locations)."""
+    if order.location is not None:
+        return safe_html(order.location.address)
+    return safe_html(order.shop.name) if order.shop is not None else "уточните у продавца"
 
 
 def customer_name(order: Order) -> str:
@@ -75,7 +81,7 @@ def customer_confirmed(order: Order) -> str:
         f"Когда заказ будет готов, вы получите уведомление.\n"
         f"Оплата {rub(order.total_price)} при получении переводом или наличными.\n"
         f"Получение заказа:\n"
-        f"{safe_html(APIARY_ADDRESS)}"
+        f"{pickup_address(order)}"
     )
 
 
@@ -85,7 +91,7 @@ def customer_ready(order: Order) -> str:
         f"<b>{product_line(order)}</b>\n"
         f"К оплате <b>{rub(order.total_price)}</b> переводом или наличными.\n"
         f"Получение заказа:\n"
-        f"{safe_html(APIARY_ADDRESS)}"
+        f"{pickup_address(order)}"
     )
 
 
