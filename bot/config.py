@@ -61,6 +61,8 @@ class Settings(_Base):
 
     # диалоги и user_data между перезапусками (пустая строка — не сохранять)
     state_file: str = "/app/state/bot_state.pickle"
+    # фото товаров (том bot_media_honey); в БД — только ключ файла, file_id Telegram — кэш
+    media_dir: str = "/app/media"
     # файл обновляется джобой каждые 30 с; по его свежести docker healthcheck судит, что бот не завис
     heartbeat_file: str = "/tmp/bot_heartbeat"
 

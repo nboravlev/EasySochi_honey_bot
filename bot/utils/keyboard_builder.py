@@ -4,7 +4,7 @@ from db.db_async import get_async_session
 from services import catalog
 
 
-async def product_offers(product_id: int) -> tuple[list[catalog.Offer], str | None]:
+async def product_offers(product_id: int) -> tuple[list[catalog.Offer], catalog.Photo | None]:
     """Размеры с ценами и обложка товара."""
     async with get_async_session() as session:
         return await catalog.offers(session, product_id), await catalog.cover_image(session, product_id)
@@ -14,9 +14,9 @@ def offer_label(offer: catalog.Offer) -> str:
     return f"{offer.size_name}кг – {float(offer.price):.0f}₽"
 
 
-async def get_product_sizes_keyboard(product_id: int) -> tuple[list[catalog.Offer], InlineKeyboardMarkup, str | None]:
+async def get_product_sizes_keyboard(product_id: int) -> tuple[list[catalog.Offer], InlineKeyboardMarkup, catalog.Photo | None]:
     """Размеры товара, клавиатура выбора размера (select_size_<id>) и обложка для карточки покупателя."""
-    sizes, image_file_id = await product_offers(product_id)
+    sizes, cover = await product_offers(product_id)
     # Формируем одну строку кнопок для размеров
     size_buttons = [
         InlineKeyboardButton(offer_label(s), callback_data=f"select_size_{s.product_size_id}")
@@ -26,7 +26,7 @@ async def get_product_sizes_keyboard(product_id: int) -> tuple[list[catalog.Offe
     keyboard = [size_buttons]  # все размеры в одном ряду
     keyboard.append([InlineKeyboardButton("🔙 Начать сначала", callback_data="honey_buy")])
 
-    return sizes, InlineKeyboardMarkup(keyboard), image_file_id
+    return sizes, InlineKeyboardMarkup(keyboard), cover
 
 
 async def build_order_keyboard(order,total_price):

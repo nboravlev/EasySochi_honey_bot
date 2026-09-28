@@ -13,6 +13,7 @@ TEST_ENV = {
     "POSTGRES_DB": "honey",
     "DB_HOST": "localhost",
     "LOG_DIR": tempfile.mkdtemp(prefix="honey-logs-"),
+    "MEDIA_DIR": tempfile.mkdtemp(prefix="honey-media-"),
 }
 for key, value in TEST_ENV.items():
     os.environ.setdefault(key, value)

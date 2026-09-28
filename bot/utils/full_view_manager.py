@@ -1,8 +1,8 @@
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from db.models.products import Product
 from utils.escape import safe_html
 
-def render_card(product: Product) -> tuple[str, list[InputMediaPhoto] | None, InlineKeyboardMarkup]:
+def render_card(product: Product) -> tuple[str, InlineKeyboardMarkup]:
     # Формируем текст с размерами и ценами
     if product.product_sizes:
         sizes_text = "\n".join(
@@ -21,9 +21,6 @@ def render_card(product: Product) -> tuple[str, list[InputMediaPhoto] | None, In
         f"🎲 Цены по размерам:\n{sizes_text}\n"
     )
 
-    # Фото (берем только первое)
-    photos = [InputMediaPhoto(img.tg_file_id) for img in product.images[:1]] if product.images else None
-
     # Кнопки
     buttons = [
         [InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_product_{product.id}")],
@@ -31,4 +28,4 @@ def render_card(product: Product) -> tuple[str, list[InputMediaPhoto] | None, In
     ]
     markup = InlineKeyboardMarkup(buttons)
 
-    return text, photos, markup
+    return text, markup

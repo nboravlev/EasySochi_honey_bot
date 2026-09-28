@@ -44,6 +44,7 @@ from services.shops import bootstrap_storefront, storefront_shop_id
 from services.users import bootstrap_managers
 from utils.logging_config import bind_update_context, setup_logging, structured_logger
 from utils.telegram_delivery import DISPATCH_INTERVAL_SEC, dispatch_due_job, purge_job
+from utils.telegram_media import backfill_media_job
 
 USER_COMMANDS = [
     BotCommand("start", "🔄 Перезапустить бот"),
@@ -125,6 +126,8 @@ def schedule_jobs(application: Application) -> None:
     # уведомления, не ушедшие сразу (Telegram не ответил), и чистка старых строк очереди
     jobs.run_repeating(dispatch_due_job, interval=DISPATCH_INTERVAL_SEC, first=15)
     jobs.run_repeating(purge_job, interval=24 * 60 * 60, first=5 * 60)
+    # фото, которые пока есть только в Telegram, — в своё хранилище (один раз после старта)
+    jobs.run_once(backfill_media_job, when=60)
 
 
 def build_persistence() -> BasePersistence:

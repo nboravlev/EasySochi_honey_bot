@@ -15,10 +15,11 @@ COPY . .
 
 # Непривилегированный пользователь (UID 1000 — владелец томов на хосте).
 # /app/state — файл состояния диалогов; том bot_state_honey при первом создании наследует владельца.
+# /app/media — фото товаров (том bot_media_honey, каталог на хосте должен принадлежать UID 1000).
 RUN useradd -m -u 1000 honeybot \
     && chmod +x /bot/entrypoint.sh \
-    && mkdir -p /app/state \
-    && chown -R honeybot:honeybot /bot /app/state
+    && mkdir -p /app/state /app/media \
+    && chown -R honeybot:honeybot /bot /app/state /app/media
 USER honeybot
 
 ENTRYPOINT ["/bot/entrypoint.sh"]

@@ -49,6 +49,8 @@ class FakeTelegram(BaseRequest):
         self.calls: list[Call] = []
         self.blocked: set[int] = set()     # эти пользователи заблокировали бота (403)
         self.unreachable: set[int] = set() # в эти чаты Telegram не отвечает (тайм-аут)
+        self.files: dict[str, bytes] = {}      # file_id → содержимое (для getFile и скачивания)
+        self.stale_file_ids: set[str] = set()  # такие file_id Telegram больше не принимает
         self._message_ids = itertools.count(10_000)
 
     @property
@@ -62,11 +64,16 @@ class FakeTelegram(BaseRequest):
         pass
 
     async def do_request(self, url: str, method: str, request_data: RequestData | None = None, **_timeouts):
+        if "/file/bot" in url:                  # скачивание файла по file_path из getFile
+            return 200, self.files[url.rsplit("/", 1)[-1]]
         api_method = url.rsplit("/", 1)[-1]
         params = dict(request_data.parameters) if request_data else {}
         chat_id = int(params.get("chat_id", 0) or 0)
         if api_method == "sendMessage" and chat_id in self.unreachable:
             raise TimedOut("fake timeout")
+        if api_method == "sendPhoto" and params.get("photo") in self.stale_file_ids:
+            error = {"ok": False, "error_code": 400, "description": "Bad Request: wrong file identifier"}
+            return 400, json.dumps(error).encode()
         if api_method == "sendMessage" and chat_id in self.blocked:
             error = {"ok": False, "error_code": 403, "description": "Forbidden: bot was blocked by the user"}
             return 403, json.dumps(error).encode()
@@ -74,18 +81,27 @@ class FakeTelegram(BaseRequest):
         return 200, json.dumps({"ok": True, "result": self._result(api_method, params)}).encode()
 
     def _result(self, api_method: str, params: dict[str, Any]) -> Any:
+        if api_method == "getFile":
+            file_id = params["file_id"]
+            return {"file_id": file_id, "file_unique_id": f"u-{file_id}", "file_size": len(self.files[file_id]),
+                    "file_path": file_id}
         if api_method == "getMe":
             return {**BOT_USER, "can_join_groups": True, "can_read_all_group_messages": False,
                     "supports_inline_queries": False}
         if api_method in MESSAGE_METHODS:
             chat_id = int(params.get("chat_id", 0))
-            return {
+            message = {
                 "message_id": int(params.get("message_id") or next(self._message_ids)),
                 "date": int(time.time()),
                 "chat": {"id": chat_id, "type": "private" if chat_id > 0 else "supergroup"},
                 "from": BOT_USER,
                 "text": str(params.get("text") or ""),
             }
+            if api_method == "sendPhoto":
+                # Telegram присваивает отправленному фото свой file_id
+                file_id = f"sent-photo-{message['message_id']}"
+                message["photo"] = [{"file_id": file_id, "file_unique_id": f"u-{file_id}", "width": 512, "height": 512}]
+            return message
         return True  # answerCallbackQuery, deleteMessage, setMyCommands, …
 
 
@@ -127,6 +143,17 @@ class Bot:
         }
         if text.startswith("/"):
             message["entities"] = [{"type": "bot_command", "offset": 0, "length": len(text.split()[0])}]
+        return await self._process({"update_id": next(self._ids), "message": message})
+
+    async def send_photo(self, person: Person, content: bytes) -> list[Call]:
+        """Человек присылает фото; содержимое можно скачать через getFile."""
+        file_id = f"user-photo-{next(self._ids)}"
+        self.telegram.files[file_id] = content
+        message = {
+            "message_id": next(self._ids), "date": int(time.time()), "chat": self._chat(person.id),
+            "from": person.as_dict(),
+            "photo": [{"file_id": file_id, "file_unique_id": f"u-{file_id}", "width": 800, "height": 600}],
+        }
         return await self._process({"update_id": next(self._ids), "message": message})
 
     async def click(self, person: Person, data: str, chat_id: int | None = None, message_id: int = 1) -> list[Call]:

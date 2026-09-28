@@ -1,10 +1,15 @@
 """Сквозные сценарии: как их проходят люди в Telegram."""
 from datetime import timedelta
+from io import BytesIO
+from pathlib import Path
 
 import pytest
+from PIL import Image as PILImage
 
+from config import get_settings
 from domain.enums import OrderStatus, Role, TastingStatus
 from utils.telegram_delivery import dispatch_due_job
+from utils.telegram_media import backfill_media_job
 from utils.timeutils import local_today
 
 from .conftest import (
@@ -155,6 +160,66 @@ async def test_owner_appoints_and_removes_manager(bot, catalog):
     assert await user_value("role_id", BUYER) == Role.USER
     calls = await bot.send(BUYER, "/honey_add")
     assert "Недостаточно прав" in all_text(calls)
+
+
+# --- фото товаров
+
+def jpeg(width: int = 800, height: int = 600) -> bytes:
+    out = BytesIO()
+    PILImage.new("RGB", (width, height), (200, 150, 30)).save(out, format="JPEG")
+    return out.getvalue()
+
+
+def uploaded(call) -> bool:
+    """Фото загружено файлом, а не отправлено по file_id."""
+    value = call.params.get("photo")
+    return value is None or str(value).startswith("attach://")
+
+
+async def test_manager_adds_product_with_photo(bot, catalog):
+    await bot.send(MANAGER, "/honey_add")
+    await bot.send(MANAGER, "Липовый")
+    await bot.click(MANAGER, str(catalog.type_id))
+    await bot.send(MANAGER, "900")                     # 0,5 кг
+    await bot.send(MANAGER, "Нет")
+    calls = await bot.send(MANAGER, "Нет")
+    assert "описание" in all_text(calls)
+    await bot.send(MANAGER, "Светлый")
+
+    calls = await bot.send_photo(MANAGER, jpeg())
+    preview = [c for c in calls if c.method == "sendPhoto"]
+    assert len(preview) == 1 and uploaded(preview[0])  # обработанное фото — файлом из хранилища
+    calls = await bot.send(MANAGER, "Готово")
+    card = [c for c in calls if c.method == "sendPhoto"]
+    assert card and card[0].params["photo"].startswith("sent-photo-")   # дальше — по кэшу file_id
+    confirm = button(calls, "confirm_product_")
+
+    sql = ("SELECT i.storage_key, i.tg_file_id FROM images i JOIN products p ON p.id = i.product_id "
+           "WHERE p.name = 'Липовый'")
+    [(key, file_id)] = await query(sql)
+    stored = Path(get_settings().media_dir) / key
+    assert key.startswith("products/") and stored.is_file()
+    assert PILImage.open(stored).size == (600, 600)    # квадрат по центру, без растягивания
+
+    # Telegram больше не принимает file_id (например, сменили токен бота) — фото уходит из хранилища
+    bot.telegram.stale_file_ids.add(file_id)
+    await bot.click(MANAGER, confirm)
+    calls = await bot.click(MANAGER, "honey_get")
+    [card] = [c for c in calls if c.method == "sendPhoto" and "Липовый" in c.text]
+    assert uploaded(card)
+    [(_, new_file_id)] = await query(sql)
+    assert new_file_id != file_id and new_file_id.startswith("sent-photo-")
+
+
+async def test_backfill_moves_telegram_only_photos(bot, catalog):
+    await execute(
+        "INSERT INTO images (product_id, tg_file_id) SELECT product_id, 'legacy-photo' FROM product_sizes WHERE id = :id",
+        id=catalog.product_size_id,
+    )
+    bot.telegram.files["legacy-photo"] = jpeg(2000, 1500)
+    await bot.run_job(backfill_media_job)
+    [(key,)] = await query("SELECT storage_key FROM images WHERE tg_file_id = 'legacy-photo'")
+    assert PILImage.open(Path(get_settings().media_dir) / key).size == (1024, 1024)
 
 
 # --- несколько магазинов

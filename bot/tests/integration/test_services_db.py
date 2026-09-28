@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
-from db.models import Order, Product, Shop, TastingSignup, User
+from db.models import Image, Order, Product, Shop, TastingSignup, User
 from domain.enums import OrderStatus as S
 from domain.enums import Provider, Role, TastingStatus
 from services import catalog, identity, shops, stats, tasting, users
@@ -134,13 +134,33 @@ async def test_withdraw_blocked_by_active_orders(session, world):
 async def test_create_and_publish_product_in_shop(session, world):
     product = await catalog.create_draft_product(
         session, shop_id=world.shop_b.id, author_id=world.other_seller.id, name="Новый", type_id=world.type_id,
-        description="—", prices=[("0.5кг", Decimal("700")), ("1.0кг", Decimal("1300"))], photo_file_ids=["file-1"],
+        description="—", prices=[("0.5кг", Decimal("700")), ("1.0кг", Decimal("1300"))], photos=[catalog.Photo(None, "products/a.jpg", "file-1")],
     )
     assert product.shop_id == world.shop_b.id and product.is_draft
     assert await catalog.publish(session, product.id, world.shop_a.id) is None     # чужой магазин
     published = await catalog.publish(session, product.id, world.shop_b.id)
     assert published is not None and not published.is_draft
     assert [o.price for o in await catalog.offers(session, product.id)] == [Decimal("700.00"), Decimal("1300.00")]
+
+    cover = await catalog.cover_image(session, product.id)
+    assert (cover.storage_key, cover.tg_file_id) == ("products/a.jpg", "file-1")
+    await catalog.remember_tg_file_id(session, cover.id, "file-2")
+    assert (await catalog.cover_image(session, product.id)).tg_file_id == "file-2"
+
+
+async def test_photos_without_storage(session, world):
+    session.add_all([Image(product_id=world.own.product_id, tg_file_id="old-1"),
+                     Image(product_id=world.own.product_id, storage_key="products/new.jpg")])
+    await session.flush()
+    legacy = [p for p in await catalog.photos_without_storage(session, limit=100) if p.tg_file_id == "old-1"]
+    assert len(legacy) == 1
+    await catalog.set_storage_key(session, legacy[0].id, "products/old-1.jpg")
+    assert all(p.id != legacy[0].id for p in await catalog.photos_without_storage(session, limit=100))
+
+    # фото без файла и без file_id — ошибка схемы
+    session.add(Image(product_id=world.own.product_id))
+    with pytest.raises(IntegrityError):
+        await session.flush()
 
 
 # --- статистика

@@ -74,14 +74,14 @@ async def fetch_seller_products(shop_scope: int | None):
         return await catalog.manager_products(session, shop_scope)
 
 
-async def get_manager_product_sizes_keyboard(product_id: int) -> tuple[list[catalog.Offer], InlineKeyboardMarkup, str | None]:
+async def get_manager_product_sizes_keyboard(product_id: int) -> tuple[list[catalog.Offer], InlineKeyboardMarkup, catalog.Photo | None]:
     """Размеры товара, клавиатура правки цен (edit_sizeprice_<id>) и снятия с продажи, обложка."""
-    sizes, image_file_id = await product_offers(product_id)
+    sizes, cover = await product_offers(product_id)
     keyboard = [
         [InlineKeyboardButton(offer_label(s), callback_data=f"edit_sizeprice_{s.product_size_id}") for s in sizes],
         [InlineKeyboardButton("🚫 Снять с продажи", callback_data=f"product_delete_{product_id}")],
     ]
-    return sizes, InlineKeyboardMarkup(keyboard), image_file_id
+    return sizes, InlineKeyboardMarkup(keyboard), cover
 
 
 async def fetch_seller_orders(shop_scope: int | None, status_filter: list | None = None) -> list[int]:

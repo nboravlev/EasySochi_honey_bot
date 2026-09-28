@@ -24,6 +24,14 @@ class Offer:
     price: Decimal
 
 
+@dataclass(frozen=True)
+class Photo:
+    """Фото товара: файл в хранилище (storage_key) и/или кэш Telegram (tg_file_id)."""
+    id: int | None
+    storage_key: str | None
+    tg_file_id: str | None = None
+
+
 class WithdrawResult(Enum):
     OK = "ok"
     NOT_FOUND = "not_found"
@@ -73,13 +81,41 @@ async def offers(session: AsyncSession, product_id: int) -> list[Offer]:
     return [Offer(product_size_id=r[0], size_name=r[1], price=r[2]) for r in rows]
 
 
-async def cover_image(session: AsyncSession, product_id: int) -> str | None:
-    """Первое активное фото товара (Telegram file_id)."""
-    return await session.scalar(
-        select(Image.tg_file_id)
+async def cover_image(session: AsyncSession, product_id: int) -> Photo | None:
+    """Первое активное фото товара."""
+    image = await session.scalar(
+        select(Image)
         .where(Image.product_id == product_id, Image.is_active.is_(True))
-        .order_by(Image.created_at).limit(1)
+        .order_by(Image.created_at, Image.id).limit(1)
     )
+    return _photo(image) if image else None
+
+
+def _photo(image: Image) -> Photo:
+    return Photo(id=image.id, storage_key=image.storage_key, tg_file_id=image.tg_file_id)
+
+
+def first_photo(product: Product) -> Photo | None:
+    """Обложка уже загруженного товара (с images)."""
+    images = sorted((i for i in product.images if i.is_active), key=lambda i: i.id)
+    return _photo(images[0]) if images else None
+
+
+async def remember_tg_file_id(session: AsyncSession, image_id: int, file_id: str) -> None:
+    """Кэш Telegram: следующая отправка фото — по file_id, без загрузки файла."""
+    await session.execute(update(Image).where(Image.id == image_id).values(tg_file_id=file_id))
+
+
+async def photos_without_storage(session: AsyncSession, limit: int = 20, after_id: int = 0) -> list[Photo]:
+    """Старые фото, которые есть только в Telegram (для переноса в своё хранилище)."""
+    rows = await session.scalars(
+        select(Image).where(Image.storage_key.is_(None), Image.id > after_id).order_by(Image.id).limit(limit)
+    )
+    return [_photo(image) for image in rows]
+
+
+async def set_storage_key(session: AsyncSession, image_id: int, key: str) -> None:
+    await session.execute(update(Image).where(Image.id == image_id).values(storage_key=key))
 
 
 # --- кабинет менеджера
@@ -120,14 +156,14 @@ async def create_draft_product(
     type_id: int,
     description: str,
     prices: list[tuple[str, Decimal]],
-    photo_file_ids: list[str],
+    photos: list[Photo],
 ) -> Product:
     """Черновик карточки: публикуется отдельно (publish). prices — [(«0.5кг», цена), …]."""
     product = Product(shop_id=shop_id, created_by=author_id, name=name, type_id=type_id, description=description)
     session.add(product)
     await session.flush()
-    for file_id in photo_file_ids:
-        session.add(Image(product_id=product.id, tg_file_id=file_id))
+    for photo in photos:
+        session.add(Image(product_id=product.id, storage_key=photo.storage_key, tg_file_id=photo.tg_file_id))
     for label, price in prices:
         size_id = await size_id_by_label(session, label)
         if size_id is None:

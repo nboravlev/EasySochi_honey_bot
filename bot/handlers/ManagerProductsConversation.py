@@ -11,6 +11,7 @@ from utils.escape import safe_html
 from utils.logging_config import structured_logger
 from utils.manager_lk_collection import fetch_seller_products, get_manager_product_sizes_keyboard
 from utils.message_tricks import add_message_to_cleanup, cleanup_messages, send_message
+from utils.telegram_media import send_card
 from utils.validation import parse_price
 
 (VIEW_PRODUCTS,
@@ -36,15 +37,10 @@ async def handle_manager_products(update: Update, context: ContextTypes.DEFAULT_
 
         for product in products:
             # Получаем размеры и клавиатуру
-            _, keyboard_markup, image_file_id = await get_manager_product_sizes_keyboard(product.id)
+            _, keyboard_markup, cover = await get_manager_product_sizes_keyboard(product.id)
             caption = (f"<b>{safe_html(product.name)}</b> ||сорт: {safe_html(product.product_type.name)}\n"
                        f"{safe_html(product.description) or 'Без описания'}")
-            if image_file_id:
-                sent = await update.effective_chat.send_photo(
-                    photo=image_file_id, caption=caption, reply_markup=keyboard_markup, parse_mode="HTML"
-                )
-            else:
-                sent = await update.effective_chat.send_message(caption, reply_markup=keyboard_markup, parse_mode="HTML")
+            sent = await send_card(update.effective_chat, cover, caption, reply_markup=keyboard_markup)
             await add_message_to_cleanup(context, sent.chat_id, sent.message_id)
         return VIEW_PRODUCTS
 

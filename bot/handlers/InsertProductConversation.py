@@ -1,5 +1,5 @@
 from db.db_async import get_async_session
-from services import catalog
+from services import catalog, media
 
 from telegram import (
     ReplyKeyboardMarkup, 
@@ -16,7 +16,7 @@ from telegram.ext import (
 from utils.message_tricks import add_message_to_cleanup
 from utils.escape import safe_html
 from utils.full_view_manager import render_card
-from utils.preprocess_foto import preprocess_photo_crop_center
+from utils.telegram_media import accept_photo, send_card
 from utils.access import get_actor, manager_only
 from utils.constants import MAX_PRICE, MAX_PRODUCT_NAME_LENGTH
 from utils.validation import parse_price
@@ -159,16 +159,32 @@ async def handle_description(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1]
-    original_file_id = photo.file_id
-    new_file_id = await preprocess_photo_crop_center(original_file_id, context.bot, update.effective_chat.id)
-    context.user_data.setdefault("photos", []).append(new_file_id)
+    try:
+        # квадрат по центру → своё хранилище; превью в чат, его file_id — кэш Telegram
+        photo = await accept_photo(context.bot, update.effective_chat, update.message.photo[-1].file_id)
+    except media.InvalidImage:
+        await update.message.reply_text("Не удалось прочитать фото. Пришлите другое изображение.")
+        return PRODUCT_PHOTO
+    context.user_data.setdefault("photos", []).append(
+        {"storage_key": photo.storage_key, "tg_file_id": photo.tg_file_id}
+    )
     await update.message.reply_text(
         f"Фото добавлено ({len(context.user_data['photos'])} шт.). Нажмите «Готово».",
         reply_markup=ReplyKeyboardMarkup([[KeyboardButton("Готово")]], resize_keyboard=True, one_time_keyboard=True)
     )
-    structured_logger.info(f"Photo added: {new_file_id} (total {len(context.user_data['photos'])})")
+    structured_logger.info(
+        "Product photo added", action="product_photo_added",
+        context={"storage_key": photo.storage_key, "total": len(context.user_data["photos"])},
+    )
     return PRODUCT_PHOTO
+
+
+def _draft_photos(items: list) -> list[catalog.Photo]:
+    # до перехода на своё хранилище в диалоге лежали строки file_id — такие фото перенесёт backfill
+    return [
+        catalog.Photo(id=None, **item) if isinstance(item, dict) else catalog.Photo(None, None, str(item))
+        for item in items
+    ]
 
 
 async def handle_photos_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,7 +211,7 @@ async def handle_photos_done(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 type_id=context.user_data["type_id"],
                 description=context.user_data["description"],
                 prices=[(item["size"], item["price"]) for item in context.user_data.get("sizes", [])],
-                photo_file_ids=photos,
+                photos=_draft_photos(photos),
             )
         except LookupError as e:
             structured_logger.error(str(e), user_id=actor.user_id, action="product_create_failed")
@@ -207,13 +223,8 @@ async def handle_photos_done(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "Product draft created", user_id=actor.user_id, action="product_draft_created",
         context={"product_id": product.id, "shop_id": shop_id, "photos": len(photos)},
     )
-    text, _, markup = render_card(product)
-    if product.images:
-        await update.message.reply_photo(
-            photo=str(product.images[0].tg_file_id), caption=text, parse_mode="HTML", reply_markup=markup
-        )
-    else:
-        await update.message.reply_text(text=text, parse_mode="HTML", reply_markup=markup)
+    text, markup = render_card(product)
+    await send_card(update.effective_chat, catalog.first_photo(product), text, reply_markup=markup)
     return ConversationHandler.END
 
 

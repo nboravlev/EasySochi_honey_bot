@@ -25,6 +25,7 @@ from services.orders import (
 )
 from utils.access import user_id_for_telegram
 from utils.telegram_delivery import deliver, log_no_channel
+from utils.telegram_media import send_card
 
 NOT_REGISTERED_TEXT = "Чтобы оформить заказ, сначала пройдите короткую регистрацию: /start"
 
@@ -122,24 +123,10 @@ async def show_filtered_products(update: Update, context: ContextTypes.DEFAULT_T
 
     for product in products:
         # Получаем размеры и клавиатуру
-        sizes, keyboard_markup, image_file_id = await get_product_sizes_keyboard(product.id)
+        sizes, keyboard_markup, cover = await get_product_sizes_keyboard(product.id)
 
         caption = f"<b>{safe_html(product.name)}</b>\n{safe_html(product.description) or 'Без описания'}"
-
-        if image_file_id:
-            sent = await update.effective_chat.send_photo(
-                photo=image_file_id,
-                caption=caption,
-                reply_markup=keyboard_markup,
-                parse_mode="HTML"
-            )
-        else:
-            sent = await update.effective_chat.send_message(
-                caption,
-                reply_markup=keyboard_markup,
-                parse_mode="HTML"
-            )
-            # сохраняем id отправленного сообщения
+        sent = await send_card(update.effective_chat, cover, caption, reply_markup=keyboard_markup)
         context.user_data["product_messages"].append(sent.message_id)
     return SELECT_SIZE
 
