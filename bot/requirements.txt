@@ -1,12 +1,15 @@
 alembic==1.16.4           # via -r requirements.in
+annotated-doc==0.0.5      # via fastapi
 annotated-types==0.7.0    # via pydantic
-anyio==4.9.0              # via httpx
+anyio==4.9.0              # via httpx, starlette
 apscheduler==3.10.4       # via python-telegram-bot
 asyncpg==0.30.0           # via -r requirements.in
 certifi==2025.7.14        # via httpcore, httpx
+click==8.5.0              # via uvicorn
+fastapi==0.128.1          # via -r requirements.in
 geoalchemy2==0.17.1       # via -r requirements.in
 greenlet==3.2.3           # via sqlalchemy
-h11==0.16.0               # via httpcore
+h11==0.16.0               # via httpcore, uvicorn
 httpcore==1.0.9           # via httpx
 httpx==0.28.1             # via python-telegram-bot
 idna==3.10                # via anyio, httpx
@@ -14,7 +17,7 @@ mako==1.3.10              # via alembic
 markupsafe==3.0.2         # via mako
 packaging==25.0           # via geoalchemy2
 pillow==11.3.0            # via -r requirements.in
-pydantic==2.11.7          # via pydantic-settings
+pydantic==2.11.7          # via fastapi, pydantic-settings
 pydantic-core==2.33.2     # via pydantic
 pydantic-settings==2.15.0  # via -r requirements.in
 python-dotenv==1.1.1      # via pydantic-settings
@@ -23,7 +26,9 @@ pytz==2025.2              # via apscheduler
 six==1.17.0               # via apscheduler
 sniffio==1.3.1            # via anyio
 sqlalchemy==2.0.41        # via -r requirements.in, alembic, geoalchemy2
-typing-extensions==4.14.1  # via alembic, anyio, pydantic, pydantic-core, sqlalchemy, typing-inspection
+starlette==0.50.0         # via fastapi
+typing-extensions==4.14.1  # via alembic, anyio, fastapi, pydantic, pydantic-core, sqlalchemy, starlette, typing-inspection
 typing-inspection==0.4.1  # via pydantic, pydantic-settings
 tzdata==2026.4            # via -r requirements.in
 tzlocal==5.3.1            # via apscheduler
+uvicorn==0.54.0           # via -r requirements.in

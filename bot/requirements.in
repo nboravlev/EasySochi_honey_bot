@@ -7,5 +7,8 @@ alembic==1.16.4
 GeoAlchemy2==0.17.1
 Pillow>=11,<12
 pydantic-settings>=2.10,<3
+# HTTP API для сайта и Mini App (api/)
+fastapi>=0.115,<1
+uvicorn>=0.35,<1
 # часовые пояса для zoneinfo (Europe/Moscow): в slim-образе системной базы может не быть
 tzdata

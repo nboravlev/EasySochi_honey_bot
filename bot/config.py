@@ -66,6 +66,12 @@ class Settings(_Base):
     # файл обновляется джобой каждые 30 с; по его свежести docker healthcheck судит, что бот не завис
     heartbeat_file: str = "/tmp/bot_heartbeat"
 
+    # адрес витрины (сайт / Telegram Mini App), https. Задан — в боте появляются кнопка меню
+    # и кнопка «Витрина»; пусто — Mini App не подключён
+    webapp_url: str = ""
+    # сколько часов действительна подпись Telegram Mini App (initData) — защита от повтора старых запросов
+    webapp_auth_max_age_hours: int = 24
+
     @cached_property
     def manager_ids(self) -> frozenset[int]:
         """MANAGER_LIST плюс владелец — для первого запуска. Права проверяются по users.role_id."""

@@ -57,6 +57,19 @@ async def product_types(session: AsyncSession, shop_id: int | None) -> list[Prod
     return list((await session.scalars(_scoped(stmt, shop_id))).all())
 
 
+async def published_products(session: AsyncSession, shop_id: int | None) -> list[Product]:
+    """Витрина целиком одним запросом (для сайта / Mini App): товары в продаже с размерами,
+    фото, сортом и магазином. Неактивные размеры и фото отфильтровывает вызывающий."""
+    stmt = (
+        select(Product)
+        .options(selectinload(Product.product_sizes).selectinload(ProductSize.sizes),
+                 selectinload(Product.images), selectinload(Product.product_type), selectinload(Product.shop))
+        .where(*_published())
+        .order_by(Product.created_at, Product.id)
+    )
+    return list((await session.scalars(_scoped(stmt, shop_id))).all())
+
+
 async def get_type(session: AsyncSession, type_id: int) -> ProductType | None:
     return await session.get(ProductType, type_id)
 

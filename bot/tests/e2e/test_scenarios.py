@@ -74,6 +74,17 @@ async def test_registration_then_menu_and_restart_command(bot):
     assert await user_value("firstname", BUYER) == "Анна"
 
 
+async def test_menu_opens_mini_app_when_configured(bot, catalog, monkeypatch):
+    await register(BUYER)
+    calls = await bot.send(BUYER, "/start")
+    assert "web_app" not in str([c.params.get("reply_markup") for c in calls])   # витрина не подключена
+
+    monkeypatch.setattr(get_settings(), "webapp_url", "https://honey.test/")
+    calls = await bot.send(BUYER, "/start")
+    markups = " ".join(str(c.params.get("reply_markup")) for c in calls)
+    assert "https://honey.test/" in markups and "Витрина" in markups
+
+
 async def test_order_from_catalog_to_handover(bot, catalog):
     await register(BUYER)
     order_id = await place_order(bot, catalog, quantity=2)

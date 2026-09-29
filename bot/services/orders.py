@@ -1,7 +1,7 @@
 """Операции с заказами. Все смены статуса — через transition(), который сверяется с domain.order_flow."""
 from datetime import timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,6 +13,7 @@ from utils.constants import DRAFT_TTL_HOURS, MAX_COMMENT_LENGTH, MAX_PRODUCT_COU
 from utils.timeutils import utcnow
 
 MAX_REASON_LENGTH = 255  # orders.manager_comment VARCHAR(255)
+MAX_ORDERS_PER_HOUR = 10  # с сайта / Mini App; в боте заказ идёт через черновик по одному
 
 # всё, что нужно для карточек заказа и уведомлений
 ORDER_DETAILS = (
@@ -57,8 +58,15 @@ class CommentTooLong(OrderError):
         )
 
 
+class TooManyOrders(OrderError):
+    user_message = "Слишком много заказов за час. Попробуйте позже или напишите продавцу."
+
+
 async def get_order(session: AsyncSession, order_id: int) -> Order | None:
-    result = await session.execute(select(Order).options(*ORDER_DETAILS).where(Order.id == order_id))
+    result = await session.execute(
+        # populate_existing: заказ, только что созданный в этой сессии, догружается со связями
+        select(Order).options(*ORDER_DETAILS).where(Order.id == order_id).execution_options(populate_existing=True)
+    )
     return result.scalar_one_or_none()
 
 
@@ -90,11 +98,7 @@ async def expire_stale_drafts(session: AsyncSession, older_than: timedelta = tim
     return result.rowcount
 
 
-async def create_draft(session: AsyncSession, customer_id: int, product_size_id: int) -> Order:
-    """Черновик заказа на 1 шт. выбранного размера в магазине этого товара.
-
-    Точка выдачи — основная точка самовывоза магазина. Прежние черновики покупателя закрываются.
-    """
+async def _available_size(session: AsyncSession, product_size_id: int) -> ProductSize:
     result = await session.execute(
         select(ProductSize)
         .options(
@@ -108,7 +112,15 @@ async def create_draft(session: AsyncSession, customer_id: int, product_size_id:
     if (product_size is None or not product_size.is_active
             or not product_size.product.is_active or product_size.product.is_draft):
         raise ProductUnavailable()
+    return product_size
 
+
+async def create_draft(session: AsyncSession, customer_id: int, product_size_id: int) -> Order:
+    """Черновик заказа на 1 шт. выбранного размера в магазине этого товара.
+
+    Точка выдачи — основная точка самовывоза магазина. Прежние черновики покупателя закрываются.
+    """
+    product_size = await _available_size(session, product_size_id)
     await expire_user_drafts(session, customer_id)
 
     # сессия покупки — журнал действий покупателя по заказу
@@ -130,6 +142,71 @@ async def create_draft(session: AsyncSession, customer_id: int, product_size_id:
     session.add(order)
     await session.flush()
     return order
+
+
+async def place_order(
+    session: AsyncSession,
+    customer_id: int,
+    product_size_id: int,
+    quantity: int,
+    comment: str = "",
+    *,
+    channel: str,
+    shop_id: int | None = None,
+) -> Order:
+    """Оформить заказ сразу, без черновика (сайт / Mini App: покупатель всё выбрал на одном экране).
+
+    Черновик в чате бота, если он есть, не трогаем. channel — откуда заказ (web, vk, …) для журнала.
+    shop_id — магазин витрины: товар другого магазина заказать через неё нельзя (None — маркетплейс).
+    Возвращает заказ со всеми связями — для карточки продавцу.
+    """
+    if not 1 <= quantity <= MAX_PRODUCT_COUNT:
+        raise QuantityLimit()
+    if await recent_orders_count(session, customer_id) >= MAX_ORDERS_PER_HOUR:
+        raise TooManyOrders()
+    product_size = await _available_size(session, product_size_id)
+    if shop_id is not None and product_size.product.shop_id != shop_id:
+        raise ProductUnavailable()
+
+    audit = Session(user_id=customer_id, role_id=Role.BUYER, last_action={"event": "order_placed", "channel": channel})
+    session.add(audit)
+    await session.flush()
+    order = Order(
+        customer_id=customer_id,
+        shop_id=product_size.product.shop_id,
+        location=await shops.pickup_location(session, product_size.product.shop_id),
+        product_size=product_size,
+        status_id=OrderStatus.CREATED,
+        product_count=quantity,
+        total_price=product_size.price * quantity,
+        session_id=audit.id,
+    )
+    set_comment(order, comment)
+    session.add(order)
+    await session.flush()
+    return await get_order(session, order.id)
+
+
+async def recent_orders_count(session: AsyncSession, customer_id: int, within: timedelta = timedelta(hours=1)) -> int:
+    """Оформленные заказы покупателя за последний час — защита от накрутки заказов с сайта."""
+    return await session.scalar(
+        select(func.count(Order.id)).where(
+            Order.customer_id == customer_id,
+            Order.created_at > utcnow() - within,
+            Order.status_id.not_in((OrderStatus.DRAFT, OrderStatus.EXPIRED)),
+        )
+    )
+
+
+async def customer_orders(session: AsyncSession, customer_id: int, limit: int = 30) -> list[Order]:
+    """Заказы покупателя, новые сверху (черновики и просроченные не показываем)."""
+    result = await session.scalars(
+        select(Order).options(*ORDER_DETAILS)
+        .where(Order.customer_id == customer_id, Order.status_id.not_in((OrderStatus.DRAFT, OrderStatus.EXPIRED)))
+        .order_by(Order.created_at.desc(), Order.id.desc())
+        .limit(limit)
+    )
+    return list(result.all())
 
 
 def change_quantity(order: Order, delta: int) -> bool:

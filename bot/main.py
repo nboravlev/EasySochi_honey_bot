@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from telegram import BotCommand, BotCommandScopeChat, Update
+from telegram import BotCommand, BotCommandScopeChat, MenuButtonWebApp, Update, WebAppInfo
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -114,6 +114,15 @@ async def post_init(application: Application) -> None:
         except Exception as exc:  # владелец ещё не писал боту
             structured_logger.warning("Owner commands not set", action="owner_commands_failed",
                                       context={"error": str(exc)})
+
+    # кнопка слева от поля ввода открывает витрину (Telegram Mini App)
+    if settings.webapp_url:
+        try:
+            await application.bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(text="Магазин", web_app=WebAppInfo(settings.webapp_url))
+            )
+        except Exception as exc:
+            structured_logger.warning("Menu button not set", action="menu_button_failed", context={"error": str(exc)})
 
     schedule_jobs(application)
 

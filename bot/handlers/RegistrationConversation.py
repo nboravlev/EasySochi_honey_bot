@@ -2,13 +2,14 @@ from pathlib import Path
 
 from telegram import (
     Update, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove,
-    InlineKeyboardButton, InlineKeyboardMarkup
+    InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 )
 from telegram.ext import (
     ContextTypes, 
     ConversationHandler
 )
 
+from config import get_settings
 from db.db_async import get_async_session
 from services import tasting
 from services.stats import manager_stats_message
@@ -390,6 +391,10 @@ async def show_customer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
             [InlineKeyboardButton("🍯 Выбрать мед", callback_data="honey_buy"),
             InlineKeyboardButton("Дегустация 🍽", callback_data="honey_try")]
         ]
+            # витрина (Telegram Mini App): кнопка работает в личном чате, меню открывается только там
+            webapp_url = get_settings().webapp_url
+            if webapp_url and update.effective_chat.type == "private":
+                action_keyboard.append([InlineKeyboardButton("🛍 Витрина", web_app=WebAppInfo(webapp_url))])
             keyboard = InlineKeyboardMarkup(location_keyboard+action_keyboard)
             # effective_message: меню открывается и командой, и колбэком back_menu
             msg = await update.effective_chat.send_photo(

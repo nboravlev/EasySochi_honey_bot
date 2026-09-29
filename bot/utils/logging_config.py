@@ -145,8 +145,13 @@ def flush_logs() -> None:
 atexit.register(flush_logs)
 
 
-def setup_logging(log_dir: str = "/app/logs", log_level: str = "INFO", enable_console: bool = True) -> None:
-    """Настраивает корневой логгер. Повторный вызов заменяет прежнюю конфигурацию."""
+def setup_logging(
+    log_dir: str = "/app/logs", log_level: str = "INFO", enable_console: bool = True, file_name: str = LOG_FILE_NAME
+) -> None:
+    """Настраивает корневой логгер. Повторный вызов заменяет прежнюю конфигурацию.
+
+    file_name — у каждого процесса свой файл: RotatingFileHandler не рассчитан на запись из нескольких процессов.
+    """
     global _listener
     flush_logs()
 
@@ -157,7 +162,7 @@ def setup_logging(log_dir: str = "/app/logs", log_level: str = "INFO", enable_co
         path = Path(log_dir)
         path.mkdir(parents=True, exist_ok=True)
         file_handler = logging.handlers.RotatingFileHandler(
-            path / LOG_FILE_NAME, maxBytes=LOG_FILE_MAX_BYTES, backupCount=LOG_FILE_BACKUPS, encoding="utf-8"
+            path / file_name, maxBytes=LOG_FILE_MAX_BYTES, backupCount=LOG_FILE_BACKUPS, encoding="utf-8"
         )
         file_handler.setFormatter(JsonFormatter())
         targets.append(file_handler)

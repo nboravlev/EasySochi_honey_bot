@@ -10,9 +10,9 @@ from utils.message_tricks import add_message_to_cleanup, cleanup_messages,send_m
 from utils.keyboard_builder import get_product_sizes_keyboard, build_order_keyboard
 from utils.escape import safe_html
 from domain.enums import OrderStatus
-from domain.messages import Button, OutMessage, ToShopStaff
+from domain.messages import ToShopStaff
 from utils.constants import MAX_COMMENT_LENGTH
-from services import catalog, notifications, order_texts, shops
+from services import catalog, notifications, order_notices, order_texts, shops
 from services.orders import (
     CommentTooLong,
     OrderError,
@@ -349,14 +349,9 @@ async def proceed_new_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
             transition(order, OrderStatus.CREATED)
 
             # карточка — в служебный чат магазина, которому принадлежит товар; в очередь вместе с заказом
-            manager_message = OutMessage(
-                order_texts.manager_card(order, f"🔔 Новый заказ #{order.id}🔔"),
-                [[Button("✅ Подтвердить", action=f"confirm_order_{order.id}"),
-                  Button("Отклонить ❌", action=f"decline_order_{order.id}")]],
-            )
-            pending = notifications.ids_of(
-                await notifications.enqueue(session, ToShopStaff(order.shop_id), manager_message, "order_created")
-            )
+            pending = notifications.ids_of(await notifications.enqueue(
+                session, ToShopStaff(order.shop_id), order_notices.new_order_for_staff(order), "order_created"
+            ))
             await session.commit()
             # Уведомляем клиента
             msg = await send_message(update,

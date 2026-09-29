@@ -45,6 +45,16 @@ async def pickup_location(session: AsyncSession, shop_id: int) -> ShopLocation |
     )
 
 
+async def active_locations(session: AsyncSession, shop_id: int) -> list[tuple[ShopLocation, Point | None]]:
+    """Действующие точки магазина с координатами (для карты на витрине)."""
+    rows = await session.execute(
+        select(ShopLocation, func.ST_Y(ShopLocation.point), func.ST_X(ShopLocation.point))
+        .where(ShopLocation.shop_id == shop_id, ShopLocation.is_active.is_(True))
+        .order_by(ShopLocation.id)
+    )
+    return [(loc, Point(latitude=lat, longitude=lon) if lat is not None else None) for loc, lat, lon in rows.all()]
+
+
 async def location_point(session: AsyncSession, location_id: int) -> Point | None:
     row = (await session.execute(
         select(func.ST_Y(ShopLocation.point), func.ST_X(ShopLocation.point))
