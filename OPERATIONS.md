@@ -192,6 +192,9 @@ tar -C /data/easysochi/backups_honey/media -cf - . | docker exec -i tg_bot_honey
 | `STATE_FILE` | `/app/state/bot_state.pickle` | файл состояния диалогов; пусто — не сохранять |
 | `MEDIA_DIR` | `/app/media` | фото товаров (том `bot_media_honey`) |
 | `STOREFRONT_SHOP` | `kraspolhoney` | slug магазина-витрины; пусто — маркетплейс (каталог всех магазинов) |
+| `WEBAPP_URL` | пусто | адрес витрины (https); задан — в боте кнопки «Магазин» / «🛍 Витрина» (раздел 11) |
+| `WEBAPP_AUTH_MAX_AGE_HOURS` | `24` | срок годности подписи Telegram для запросов витрины |
+| `WEB_PORT` / `WEB_BIND` | `8090` / `127.0.0.1` | где на хосте слушает контейнер витрины (для внешнего шлюза) |
 | `LOG_LEVEL` | `INFO` | подробность логов |
 | `SLOW_QUERY_MS` | `500` | порог медленного SQL-запроса для лога |
 
@@ -289,3 +292,71 @@ SELECT count(*) FILTER (WHERE storage_key IS NOT NULL) AS in_storage,
 
 Откат: `alembic downgrade c2d3e4f5a6b7` возвращает прежнюю схему, пока в системе нет пользователей
 без Telegram (сайт, VK) и фото, загруженных только в хранилище; иначе — восстановление из бэкапа (раздел 6).
+
+---
+
+## 11. Витрина: сайт и Telegram Mini App
+
+Два контейнера:
+
+- `api_honey` — HTTP API (тот же образ, что у бота, команда `api`). Наружу не опубликован.
+- `web_honey` — nginx: собранный фронтенд из `web/`, `/api/` и `/media/` проксирует в `api_honey`.
+  Слушает `127.0.0.1:8090` (`WEB_BIND` / `WEB_PORT`) — для внешнего шлюза на этом же сервере.
+
+Оба собираются и перезапускаются той же командой `docker compose up -d --build` (сборка `web` берёт
+пакеты из npm — нужен интернет на сервере во время сборки).
+
+### Однократное подключение
+
+1. **Шлюз с HTTPS.** Telegram открывает Mini App только по `https`. Во внешнем nginx-шлюзе — сервер
+   для домена витрины (сертификат — как у остальных доменов шлюза):
+   ```nginx
+   server {
+       listen 443 ssl;
+       server_name honey.easy-sochi.ru;
+       # ssl_certificate …; ssl_certificate_key …;
+       location / {
+           proxy_pass http://127.0.0.1:8090;
+           proxy_set_header Host $host;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto https;
+       }
+   }
+   ```
+   Если шлюз сам работает в Docker, вместо `127.0.0.1:8090` — адрес хоста из его контейнера
+   (или общая docker-сеть и `web_honey:80`).
+2. Проверка: `https://honey.easy-sochi.ru/` открывает каталог, `https://honey.easy-sochi.ru/api/health` → `{"status":"ok"}`.
+3. **Кнопки в боте.** В `.env`: `WEBAPP_URL=https://honey.easy-sochi.ru/`, затем `docker compose up -d bot_honey`.
+   Бот сам ставит кнопку меню «Магазин» (слева от поля ввода) и добавляет «🛍 Витрина» в главное меню.
+4. *(Необязательно)* **Ссылки на витрину и товары** вида `https://t.me/<бот>?startapp=product_12`:
+   в @BotFather → бот → *Bot Settings* → *Configure Mini App* → *Enable Mini App*, адрес — тот же `WEBAPP_URL`.
+
+Выключить витрину в боте: `WEBAPP_URL=` (пусто) и перезапуск бота — пропадёт кнопка «🛍 Витрина».
+Кнопка меню «Магазин» сохраняется в Telegram; вернуть обычное меню команд — @BotFather → бот → *Bot Settings* → *Configure Menu Button*.
+
+### Как это работает для покупателя
+
+Каталог открыт всем. Заказать можно только внутри Telegram: Mini App передаёт API подписанные
+Telegram данные пользователя, без пароля. Заказ приходит в служебный чат обычной карточкой,
+статусы — покупателю в чат бота и в «Мои заказы» на витрине.
+
+### Диагностика
+
+```bash
+docker compose ps api_honey web_honey          # у api_honey должно быть (healthy)
+curl -s http://127.0.0.1:8090/api/health
+docker compose logs --tail 50 api_honey
+```
+
+Журнал API — `/data/easysochi/logs_honey/api_structured.log`:
+`api_request` (ошибки и все изменяющие запросы), `api_unhandled_error`,
+`api_telegram_unavailable` (API не достучался до Telegram — уведомления дошлёт бот из очереди),
+`order_created` с `"channel": "webapp"` — заказы с витрины.
+
+| Симптом | Причина |
+|---|---|
+| в браузере «Откройте витрину в Telegram, чтобы оформить заказ» | так и задумано: вне Telegram витрина только для просмотра |
+| в Telegram «Не удалось проверить вход через Telegram» | витрина открыта дольше `WEBAPP_AUTH_MAX_AGE_HOURS` — закрыть и открыть заново; или `BOT_TOKEN` у API не тот, что у бота |
+| каталог пустой | нет опубликованных товаров витрины (`STOREFRONT_SHOP`) — проверить в «Мой мёд» у менеджера |
+| нет фото на витрине | фото ещё не перенесены в хранилище (раздел 9, `media_backfill`) |
+| 502 на `/api/` | `api_honey` не запущен или перезапускается: `docker compose logs api_honey` |

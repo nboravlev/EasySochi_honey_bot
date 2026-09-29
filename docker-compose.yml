@@ -44,6 +44,44 @@ services:
       start_period: 60s
       retries: 3
 
+  # HTTP API витрины (сайт / Telegram Mini App): тот же образ, что у бота, команда api (uvicorn).
+  # Наружу не публикуется — к нему ходит только web_honey по сети Docker.
+  api_honey:
+    build: ./bot
+    command: ["api"]
+    user: "1000:1000"
+    container_name: api_honey
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - bot_logs_honey:/app/logs
+      # фото товаров отдаёт API (владелец файлов — UID 1000); nginx только кэширует ответ
+      - bot_media_honey:/app/media:ro
+    depends_on:
+      db_honey:
+        condition: service_healthy
+    networks:
+      - tg_app_net_honey
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  # Витрина: собранный фронтенд (web/) + прокси /api и /media в api_honey.
+  # Внешний nginx-шлюз с HTTPS проксирует домен витрины сюда (см. OPERATIONS.md).
+  web_honey:
+    build: ./web
+    container_name: web_honey
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8090}:80"
+    depends_on:
+      - api_honey
+    networks:
+      - tg_app_net_honey
+
   log-viewer_honey:
     build: ./log_viewer
     user: "1000:1000"

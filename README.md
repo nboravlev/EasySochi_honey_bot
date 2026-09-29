@@ -3,8 +3,8 @@
 Telegram-бот продаж мёда небольшой краснополянской пасеки: каталог, заказ с самовывозом,
 кабинет продавца и запись на дегустации.
 
-Бэкенд рассчитан на несколько магазинов и несколько фронтендов: Telegram — первый из них,
-VK, сайт и Mini App подключаются к тем же данным (см. «Архитектура»).
+Бэкенд рассчитан на несколько магазинов и несколько фронтендов: чат-бот Telegram и витрина
+(сайт + Telegram Mini App) работают с одними данными; VK подключится так же (см. «Архитектура»).
 
 ---
 
@@ -17,6 +17,13 @@ VK, сайт и Mini App подключаются к тем же данным (�
 
 Незавершённый заказ (черновик) один на покупателя: новый выбор закрывает прежний,
 а брошенный черновик закрывается автоматически через сутки.
+
+### Витрина: сайт и Telegram Mini App
+Каталог с фото и ценами открыт всем по адресу витрины. Внутри Telegram (кнопка меню бота «Магазин»
+или «🛍 Витрина» в главном меню) покупатель там же оформляет заказ и смотрит «Мои заказы».
+Заказ из витрины приходит продавцу обычной карточкой в служебный чат, дальше — как заказ из бота:
+статусы приходят покупателю в чат, на витрине видны в «Мои заказы».
+В обычном браузере оформить заказ нельзя — кнопка ведёт в бота.
 
 ### Менеджер
 Работает в одном магазине и видит только его товары, заказы и статистику:
@@ -50,13 +57,25 @@ VK, сайт и Mini App подключаются к тем же данным (�
 ## 🏗 Архитектура
 
 - **Bot**: Python 3.12 (python-telegram-bot 22, SQLAlchemy 2 async)
+- **API**: FastAPI (`bot/api/`, тот же образ и те же `services/`, контейнер `api_honey`)
+- **Web**: React + Vite + TypeScript (`web/`), раздаёт nginx в контейнере `web_honey`
 - **Database**: PostgreSQL 15 + PostGIS
 - **Logs**: JSON-логи + FastAPI Log Viewer
-- **Proxy**: Nginx Gateway (внешний)
+- **Proxy**: Nginx Gateway (внешний, HTTPS)
+
+```
+Telegram ─► bot_honey ──┐
+                        ├─► services/ ─► PostgreSQL
+браузер / Mini App ─► web_honey (nginx) ─► /api ─► api_honey ──┘
+```
 
 Слои: `domain/` (правила, без БД и Telegram) → `services/` (бизнес-операции над БД, без Telegram) →
-адаптер платформы (`handlers/` и `utils/telegram_*` для Telegram). Новый фронтенд — это новый
+адаптеры: чат-бот (`handlers/`, `utils/telegram_*`) и HTTP API (`api/`). Новый фронтенд — это новый
 адаптер поверх тех же `services/`.
+
+**Вход на витрину.** Пароля нет: Telegram подписывает данные пользователя Mini App (`initData`) ключом,
+производным от токена бота, API проверяет подпись (`api/telegram_auth.py`) и находит или создаёт
+пользователя — того же, что в боте.
 
 **Магазины.** `shops` — продавцы платформы; у магазина точки выдачи с координатами (`shop_locations`)
 и служебные каналы в платформах (`shop_channels`: например, Telegram-группа продавцов).
@@ -150,10 +169,11 @@ ssh -L 5335:127.0.0.1:5335 -L 8080:127.0.0.1:8080 user@server
 
 ```
 EasySochi_honey_bot/
-├── .github/workflows/ci.yml   # ruff, pytest, миграции на пустой PostGIS, сборка образов
+├── .github/workflows/ci.yml   # ruff, pytest, миграции на пустой PostGIS, фронтенд, сборка образов
 ├── bot
 │   ├── config.py              # все настройки из окружения (pydantic-settings)
 │   ├── main.py                # сборка приложения и регистрация хендлеров
+│   ├── api/                   # HTTP API витрины (FastAPI): вход по подписи Telegram, каталог, заказы
 │   ├── db_monitor.py          # джоба проверки БД
 │   ├── alembic/               # миграции (async, через asyncpg)
 │   ├── db/                    # base.py (Base), db_async.py (движок, сессии), models/
@@ -171,6 +191,7 @@ EasySochi_honey_bot/
 │   ├── init/init-pg.sql       # расширения при первой инициализации БД
 │   └── tools/
 ├── log_viewer/
+├── web/                      # витрина: React + Vite (src/), nginx.conf, Dockerfile
 ├── ops/                      # бэкап, проверка восстановления, аварийное восстановление, автоперезапуск
 ├── OPERATIONS.md           # руководство по эксплуатации
 └── docker-compose.yml
@@ -201,7 +222,22 @@ pip-compile --strip-extras requirements.in
 alembic revision --autogenerate -m "описание"
 ```
 
-Логи: `bot_structured.log` в `LOG_DIR` — JSON по строке на запись, ротация по 10 МБ × 5 файлов;
+### Витрина локально
+
+API (из `bot/`, нужна база): `uvicorn api.main:app --reload --port 8000`, документация — http://localhost:8000/api/docs.
+Фронтенд (из `web/`, Node 22):
+
+```bash
+npm ci
+npm run dev          # http://localhost:5173, /api и /media проксируются на :8000
+npm run typecheck && npm test && npm run build
+```
+
+В обычном браузере витрина работает на просмотр. Чтобы проверить заказ без Telegram, откройте страницу
+с параметрами запуска Mini App: `http://localhost:5173/#tgWebAppData=<initData>` — подписанную
+`initData` для своего `BOT_TOKEN` даёт `api.telegram_auth.sign_init_data` (так сделано в `tests/e2e/test_api.py`).
+
+Логи: `bot_structured.log` (бот) и `api_structured.log` (API) в `LOG_DIR` — JSON по строке на запись, ротация по 10 МБ × 5 файлов;
 предупреждения и ошибки дублируются в `docker logs`. В коде:
 `structured_logger.info("текст", action="order_created", order_id=..., context={...})` —
 `user_id`/`chat_id`/`update_id` текущего апдейта добавляются автоматически.
@@ -210,6 +246,10 @@ alembic revision --autogenerate -m "описание"
 
  * Конфиденциальные данные (пользователи БД, токены) хранятся в переменнных .env
  * Доступ в Telegram бот регулируется ролями
+ * API витрины: персональные данные и заказы — только по подписи Telegram (`initData`, срок годности
+   `WEBAPP_AUTH_MAX_AGE_HOURS`); покупатель видит только свои заказы; не больше 10 заказов в час;
+   в режиме витрины заказать можно только товары её магазина. Публичен только каталог.
+ * Контейнер API наружу не опубликован — к нему ходит только nginx витрины по сети Docker.
 
 
 ## Развитие

@@ -1,0 +1,474 @@
+/* Цвета: внутри Telegram — из темы пользователя (--tg-theme-*, их выставляет telegram-web-app.js),
+   в обычном браузере — свои светлая и тёмная палитры. */
+:root {
+  --bg: var(--tg-theme-bg-color, #fffaf0);
+  --bg-secondary: var(--tg-theme-secondary-bg-color, #f5ecd9);
+  --text: var(--tg-theme-text-color, #2b2116);
+  --hint: var(--tg-theme-hint-color, #8a7a66);
+  --accent: var(--tg-theme-button-color, #d98e04);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --link: var(--tg-theme-link-color, #b36b00);
+  --danger: var(--tg-theme-destructive-text-color, #c0392b);
+  --radius: 14px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: var(--tg-theme-bg-color, #1c1813);
+    --bg-secondary: var(--tg-theme-secondary-bg-color, #2a241c);
+    --text: var(--tg-theme-text-color, #f3e9d8);
+    --hint: var(--tg-theme-hint-color, #a8987f);
+    --link: var(--tg-theme-link-color, #f0b43c);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 16px 32px;
+}
+
+.app--tabs {
+  padding-bottom: 88px;
+}
+
+.muted {
+  color: var(--hint);
+  font-size: 14px;
+}
+
+.hero h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+}
+
+.hero p {
+  margin: 0 0 16px;
+  color: var(--hint);
+}
+
+.hero--small {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  scrollbar-width: none;
+}
+
+.chip {
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: var(--bg-secondary);
+}
+
+.chip.is-active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  background: var(--bg-secondary);
+}
+
+.card__body {
+  padding: 10px 12px 12px;
+}
+
+.card__name {
+  font-weight: 600;
+}
+
+.card__price {
+  margin-top: 6px;
+  font-weight: 600;
+  color: var(--link);
+}
+
+.photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  background: var(--bg-secondary);
+}
+
+.photo--empty {
+  display: grid;
+  place-items: center;
+  font-size: 48px;
+}
+
+.gallery {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  margin: 0 -16px 12px;
+  padding: 0 16px;
+  scrollbar-width: none;
+}
+
+.gallery__photo {
+  flex: none;
+  width: min(100%, 420px);
+  border-radius: var(--radius);
+  scroll-snap-align: center;
+}
+
+.product__name {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+
+.product__description {
+  white-space: pre-line;
+}
+
+.back {
+  border: 0;
+  background: none;
+  color: var(--link);
+  padding: 0 0 12px;
+}
+
+.section {
+  margin-top: 20px;
+}
+
+.section__title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--hint);
+}
+
+.options {
+  display: grid;
+  gap: 8px;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  border: 2px solid transparent;
+}
+
+.option.is-active {
+  border-color: var(--accent);
+}
+
+.option input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.option b {
+  margin-left: auto;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
+.stepper button {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 22px;
+}
+
+.stepper button:disabled {
+  opacity: 0.4;
+}
+
+.stepper span {
+  min-width: 24px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--hint);
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  font-size: 16px; /* меньше 16px — iOS увеличивает страницу при фокусе */
+  resize: vertical;
+}
+
+.field input:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.total {
+  margin-top: 16px;
+  font-size: 18px;
+}
+
+.button {
+  display: inline-block;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 18px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.button--secondary {
+  background: var(--bg-secondary);
+  color: var(--link);
+}
+
+.link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--link);
+  text-decoration: none;
+}
+
+.place {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
+.state {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--hint);
+}
+
+.state--error {
+  color: var(--danger);
+  padding: 16px;
+}
+
+.state--error p {
+  margin: 0;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--bg-secondary);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+.orders {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.order {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  text-align: left;
+}
+
+.order__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--hint);
+}
+
+.order__line {
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.order__total {
+  margin-top: 2px;
+}
+
+.order__note {
+  margin-top: 6px;
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.order__pickup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 14px;
+}
+
+.badge {
+  flex: none;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: #8a7a66;
+}
+
+.badge--new {
+  background: #d98e04;
+}
+
+.badge--work {
+  background: #2f7fd1;
+}
+
+.badge--ready {
+  background: #2e9e57;
+}
+
+.badge--declined {
+  background: #c0392b;
+}
+
+.done {
+  text-align: center;
+}
+
+.done__icon {
+  font-size: 56px;
+  margin-top: 24px;
+}
+
+.done h1 {
+  margin: 8px 0;
+}
+
+.done .orders {
+  margin: 20px 0;
+}
+
+.done__actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--bg-secondary);
+}
+
+.tabbar__item {
+  flex: 1;
+  max-width: 220px;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px;
+  background: none;
+  color: var(--hint);
+  font-weight: 600;
+}
+
+.tabbar__item.is-active {
+  background: var(--bg-secondary);
+  color: var(--text);
+}

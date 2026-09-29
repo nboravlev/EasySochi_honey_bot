@@ -70,6 +70,24 @@ jobs:
         env:
           RUN_DB_TESTS: "1"
 
+  web:
+    name: Web (Mini App)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-fund --no-audit
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
   docker:
     name: Docker images build
     runs-on: ubuntu-latest
@@ -80,3 +98,6 @@ jobs:
       - run: docker build -t honey-bot ./bot
       - run: docker build -t honey-db ./db
       - run: docker build -t honey-log-viewer ./log_viewer
+      - run: docker build -t honey-web ./web
+      - name: nginx config of the web image
+        run: docker run --rm --add-host api_honey:127.0.0.1 honey-web nginx -t
