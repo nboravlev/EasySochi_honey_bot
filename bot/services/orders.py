@@ -247,3 +247,48 @@ def decline(order: Order, reason: str, *, actor_id: int | None = None) -> timede
     time_in_status = transition(order, OrderStatus.DECLINED, actor_id=actor_id)
     order.manager_comment = reason.strip()[:MAX_REASON_LENGTH] or "Причина не указана"
     return time_in_status
+
+
+# группы статусов для фильтра в админке
+STATUS_GROUPS: dict[str, tuple[OrderStatus, ...]] = {
+    "new": (OrderStatus.CREATED,),
+    "work": (OrderStatus.PROCESSING, OrderStatus.READY, OrderStatus.CUSTOMER_NOTIFIED),
+    "done": (OrderStatus.RECEIVED,),
+    "declined": (OrderStatus.DECLINED,),
+}
+
+
+async def staff_orders(
+    session: AsyncSession,
+    shop_id: int | None,
+    *,
+    statuses: tuple[OrderStatus, ...] | None = None,
+    search: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[Order], int]:
+    """Заказы магазина для продавца (shop_id=None — все магазины), новые сверху, и их общее число.
+
+    search — номер заказа или часть имени / @username / телефона покупателя.
+    """
+    stmt = select(Order).where(Order.status_id.not_in((OrderStatus.DRAFT, OrderStatus.EXPIRED)))
+    if shop_id is not None:
+        stmt = stmt.where(Order.shop_id == shop_id)
+    if statuses:
+        stmt = stmt.where(Order.status_id.in_(statuses))
+    search = search.strip().lstrip("#№@")
+    if search:
+        pattern = f"%{search}%"
+        customer = select(User.id).where(
+            User.firstname.ilike(pattern) | User.username.ilike(pattern) | User.phone_number.ilike(pattern)
+        )
+        condition = Order.customer_id.in_(customer)
+        if search.isdigit():
+            condition = condition | (Order.id == int(search))
+        stmt = stmt.where(condition)
+
+    total = await session.scalar(select(func.count()).select_from(stmt.subquery()))
+    rows = await session.scalars(
+        stmt.options(*ORDER_DETAILS).order_by(Order.created_at.desc(), Order.id.desc()).limit(limit).offset(offset)
+    )
+    return list(rows.all()), total or 0

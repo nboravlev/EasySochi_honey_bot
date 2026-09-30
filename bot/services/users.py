@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from config import get_settings
 from db.db_async import get_async_session
 from db.models import User
 from domain.enums import Provider, Role
@@ -87,3 +88,12 @@ async def list_managers(session: AsyncSession, shop_id: int | None = None) -> li
     if shop_id is not None:
         stmt = stmt.where(User.shop_id == shop_id)
     return list((await session.scalars(stmt)).all())
+
+
+async def is_platform_owner(session: AsyncSession, user_id: int) -> bool:
+    """Владелец платформы — человек с Telegram-аккаунтом OWNER_ID из .env."""
+    owner_id = get_settings().owner_id
+    if not owner_id:
+        return False
+    owner = await identity.find_user(session, Provider.TELEGRAM, owner_id)
+    return owner is not None and owner.id == user_id

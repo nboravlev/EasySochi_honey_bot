@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from telegram.request import BaseRequest
 
+from api import admin
 from api.routes import account, public
 from api.notifier import Notifier
 from config import get_settings
@@ -63,6 +64,7 @@ def create_app(telegram_request: BaseRequest | None = None, configure_logging: b
 
     app.include_router(public.router, prefix="/api")
     app.include_router(account.router, prefix="/api")
+    app.include_router(admin.router)
 
     @app.get("/api/health", include_in_schema=False)
     async def health() -> dict:

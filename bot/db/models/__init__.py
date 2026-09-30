@@ -23,6 +23,7 @@ from .tasting import TastingEvent, TastingSignup
 from .shops import Shop, ShopChannel, ShopLocation
 from .user_identities import UserIdentity
 from .notifications import Notification
+from .admin_auth import AdminLoginToken, AdminSession
 
 
 __all__ = ["Source","User", "Role", "Session",
@@ -33,4 +34,5 @@ __all__ = ["Source","User", "Role", "Session",
     "DeliveryInterval","DeliveryZone","OrderDelivery","DeliveryStatus",
     "TastingEvent", "TastingSignup",
     "Shop", "ShopLocation", "ShopChannel", "UserIdentity", "Notification",
+    "AdminLoginToken", "AdminSession",
 ]

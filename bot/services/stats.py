@@ -1,5 +1,6 @@
 """Статистика для меню менеджера. Менеджер видит свои товары, владелец — все."""
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import Select, func, select
@@ -49,12 +50,17 @@ class ManagerStats:
         return result
 
 
-def _in_shop(stmt: Select, shop_id: int | None) -> Select:
+def _in_shop(stmt: Select, shop_id: int | None, since: datetime | None = None) -> Select:
+    if since is not None:
+        stmt = stmt.where(Order.created_at >= since)
     return stmt if shop_id is None else stmt.where(Order.shop_id == shop_id)
 
 
-async def collect(session: AsyncSession, shop_id: int | None) -> ManagerStats:
-    """Статистика магазина; shop_id=None — по всем магазинам (владелец платформы)."""
+async def collect(session: AsyncSession, shop_id: int | None, since: datetime | None = None) -> ManagerStats:
+    """Статистика магазина; shop_id=None — по всем магазинам (владелец платформы).
+
+    since — только заказы, созданные с этого момента (админка: «за 30 дней»); покупатели и дегустации — всегда текущие.
+    """
     kg = func.sum(Order.product_count * Size.name)
     sales_stmt = (
         select(Product.name, kg, func.sum(Order.total_price))
@@ -66,11 +72,11 @@ async def collect(session: AsyncSession, shop_id: int | None) -> ManagerStats:
         .group_by(Product.name)
         .order_by(kg.desc())
     )
-    sales = await session.execute(_in_shop(sales_stmt, shop_id))
+    sales = await session.execute(_in_shop(sales_stmt, shop_id, since))
     stats = ManagerStats(sales_by_product=[(name, kg or Decimal(0), total or Decimal(0)) for name, kg, total in sales])
 
     by_status = await session.execute(
-        _in_shop(select(Order.status_id, func.count(Order.id), func.sum(Order.total_price)), shop_id)
+        _in_shop(select(Order.status_id, func.count(Order.id), func.sum(Order.total_price)), shop_id, since)
         .where(Order.status_id.not_in(NOT_ORDERS))
         .group_by(Order.status_id)
     )

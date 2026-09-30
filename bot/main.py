@@ -24,6 +24,7 @@ from handlers.InvitationHandler import invitation
 from handlers.ManagerOrdersHandler import manager_orders
 from handlers.ManagerProductsHandler import manager_products
 from handlers.InvitationConversation import tasting_rsvp
+from handlers.AdminPanel import admin_handlers
 from handlers.ManagersAdmin import managers_handlers
 from handlers.OrderStatusFlow import (
     customer_button_handler,
@@ -39,6 +40,7 @@ from handlers.SelectProductHandler import select_product_conv
 from handlers.ShowInfoHandler import info_callback_handler, info_command
 from handlers.UserSendProblemHandler import problem_handler
 from db.db_async import get_async_session
+from services import admin_auth
 from services.orders import expire_stale_drafts
 from services.shops import bootstrap_storefront, storefront_shop_id
 from services.users import bootstrap_managers
@@ -56,6 +58,7 @@ USER_COMMANDS = [
 OWNER_COMMANDS = USER_COMMANDS + [
     BotCommand("managers", "👥 Менеджеры"),
     BotCommand("manager_add", "➕ Назначить менеджера"),
+    BotCommand("admin", "🖥 Админка в браузере"),
 ]
 
 
@@ -82,6 +85,15 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         exception=context.error,
         context={"update": update_kind},
     )
+
+
+async def purge_admin_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Раз в сутки: истёкшие ссылки входа и сессии админки."""
+    async with get_async_session() as session:
+        removed = await admin_auth.purge(session)
+        await session.commit()
+    if removed:
+        structured_logger.info("Admin sessions purged", action="admin_purge", context={"removed": removed})
 
 
 async def expire_drafts_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -143,6 +155,7 @@ def schedule_jobs(application: Application) -> None:
     # уведомления, не ушедшие сразу (Telegram не ответил), и чистка старых строк очереди
     jobs.run_repeating(dispatch_due_job, interval=DISPATCH_INTERVAL_SEC, first=15)
     jobs.run_repeating(purge_job, interval=24 * 60 * 60, first=5 * 60)
+    jobs.run_repeating(purge_admin_job, interval=24 * 60 * 60, first=6 * 60)
     # фото, которые пока есть только в Telegram, — в своё хранилище (один раз после старта)
     jobs.run_once(backfill_media_job, when=60)
 
@@ -199,6 +212,8 @@ def build_application(
     app.add_handler(CallbackQueryHandler(order_complit_handler, pattern=r"^order_complit_\d+$"), group=0)
     app.add_handler(CallbackQueryHandler(tasting_rsvp, pattern=r"^tasting_(yes|no)_\d+$"), group=0)
     for handler in managers_handlers:
+        app.add_handler(handler, group=0)
+    for handler in admin_handlers:
         app.add_handler(handler, group=0)
     app.add_handler(problem_handler, group=0)
     app.add_handler(admin_replay_handler, group=0)

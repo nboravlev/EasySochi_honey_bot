@@ -1,7 +1,16 @@
-"""Уведомления о заказе в нейтральном формате (domain.messages) — одни и те же для бота, сайта и Mini App."""
+"""Уведомления о заказе в нейтральном формате (domain.messages) — одни и те же для бота, витрины и админки."""
 from db.models import Order
-from domain.messages import Button, OutMessage
+from domain.messages import Button, OutMessage, Recipient, ToShopStaff, ToUser
 from services import order_texts
+
+# уведомление: кому, что, какое событие (для журнала очереди)
+Notice = tuple[Recipient, OutMessage, str]
+
+
+def map_button(order: Order) -> Button:
+    return Button(
+        "🧭 Показать на карте", action=f"show_map_{order.location_id}" if order.location_id else "show_map"
+    )
 
 
 def new_order_for_staff(order: Order) -> OutMessage:
@@ -22,3 +31,33 @@ def order_placed_for_customer(order: Order) -> OutMessage:
         f"📍 Самовывоз: {order_texts.pickup_address(order)}\n\n"
         "Ожидайте уведомление от продавца."
     )
+
+
+def confirmed(order: Order) -> list[Notice]:
+    message = OutMessage(order_texts.customer_confirmed(order), [[map_button(order)]])
+    return [(ToUser(order.customer_id), message, "order_confirmed")]
+
+
+def ready(order: Order) -> list[Notice]:
+    message = OutMessage(order_texts.customer_ready(order), [
+        [map_button(order)],
+        [Button("Планирую получить:", action="noop")],
+        [Button("🟢 сегодня", action=f"pickup_today_{order.id}"),
+         Button("🟡 завтра", action=f"pickup_tomorrow_{order.id}"),
+         Button("🔵 завтра+", action=f"pickup_later_{order.id}")],
+    ])
+    return [(ToUser(order.customer_id), message, "order_ready")]
+
+
+def received(order: Order) -> list[Notice]:
+    return [
+        (ToUser(order.customer_id),
+         OutMessage("❤️ Спасибо, что выбрали наш мёд! Будем рады видеть вас снова!"), "order_received"),
+        (ToShopStaff(order.shop_id),
+         OutMessage(f"Заказ №{order.id} выдан покупателю.\nОплачено {order_texts.rub(order.total_price)}"),
+         "order_received"),
+    ]
+
+
+def declined(order: Order) -> list[Notice]:
+    return [(ToUser(order.customer_id), OutMessage(order_texts.customer_declined(order)), "order_declined")]

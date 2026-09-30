@@ -21,6 +21,7 @@ pydantic==2.11.7          # via fastapi, pydantic-settings
 pydantic-core==2.33.2     # via pydantic
 pydantic-settings==2.15.0  # via -r requirements.in
 python-dotenv==1.1.1      # via pydantic-settings
+python-multipart==0.0.32  # via -r requirements.in
 python-telegram-bot==22.8  # via -r requirements.in
 pytz==2025.2              # via apscheduler
 six==1.17.0               # via apscheduler

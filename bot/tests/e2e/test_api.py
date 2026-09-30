@@ -1,15 +1,8 @@
 """HTTP API витрины на реальной БД: каталог, вход через Telegram, заказ из Mini App и его путь через бота."""
-import json
-import time
 from decimal import Decimal
-from types import SimpleNamespace
 
-import httpx
 import pytest
 
-from api.main import create_app
-from api.telegram_auth import sign_init_data
-from config import get_settings
 from domain.enums import OrderStatus
 from services import media, orders
 
@@ -21,30 +14,12 @@ from .conftest import (
     create_second_shop,
     execute,
     query,
+    tma,
     user_value,
 )
-from .harness import FakeTelegram, Person, all_text, button, to
+from .harness import all_text, button, to
 
 pytestmark = pytest.mark.db
-
-
-def tma(person: Person, age_seconds: int = 0) -> dict[str, str]:
-    """Заголовок, который отправляет Mini App: initData, подписанная токеном бота."""
-    fields = {
-        "query_id": "AAE",
-        "auth_date": str(int(time.time()) - age_seconds),
-        "user": json.dumps({**person.as_dict(), "allows_write_to_pm": True}, ensure_ascii=False),
-    }
-    return {"Authorization": f"tma {sign_init_data(fields, get_settings().bot_token)}"}
-
-
-@pytest.fixture
-async def api(catalog):
-    telegram = FakeTelegram()
-    app = create_app(telegram_request=telegram, configure_logging=False)
-    async with app.router.lifespan_context(app):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-            yield SimpleNamespace(client=client, telegram=telegram)
 
 
 async def test_public_catalog(api, catalog):

@@ -9,7 +9,7 @@ from telegram import Bot
 from telegram.request import BaseRequest
 
 from utils import vk_delivery
-from utils.delivery import deliver
+from utils.delivery import Delivery, deliver
 from utils.logging_config import structured_logger
 
 
@@ -38,14 +38,16 @@ class Notifier:
         bot = await self.bot()
         return f"https://t.me/{bot.username}" if bot else None
 
-    async def deliver(self, notification_ids: list[int]) -> None:
-        """Фоновая задача после ответа клиенту: отправить только что поставленные уведомления."""
+    async def deliver(self, notification_ids: list[int]) -> Delivery:
+        """Отправить только что поставленные уведомления (витрина — фоновой задачей после ответа,
+        админка — сразу, чтобы показать, получил ли покупатель уведомление)."""
         if not notification_ids:
-            return
+            return Delivery()
         try:
-            await deliver(await self.bot(), notification_ids)
+            return await deliver(await self.bot(), notification_ids)
         except Exception as exc:  # строки остались pending — дошлёт бот
             structured_logger.error("API notification delivery failed", action="api_deliver_failed", exception=exc)
+            return Delivery(queued=len(notification_ids))
 
     async def close(self) -> None:
         if self._ready:

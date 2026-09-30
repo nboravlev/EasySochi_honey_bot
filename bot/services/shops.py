@@ -1,8 +1,9 @@
 """Магазины (тенанты): витрина, точки, служебные каналы."""
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from config import get_settings
 from db.models import Shop, ShopChannel, ShopLocation
@@ -112,3 +113,65 @@ async def bootstrap_storefront(session: AsyncSession, admin_chat_id: int | None,
         filled.append("contact_phone")
     await session.flush()
     return filled
+
+
+# --- админка
+
+
+class ShopError(ValueError):
+    """Ошибка данных магазина — текст можно показать пользователю."""
+
+
+def point_wkt(latitude: float | None, longitude: float | None) -> str | None:
+    """Координаты → значение колонки shop_locations.point (PostGIS: сначала долгота)."""
+    if latitude is None or longitude is None:
+        return None
+    return f"SRID=4326;POINT({longitude} {latitude})"
+
+
+async def list_shops(session: AsyncSession, shop_id: int | None = None) -> list[Shop]:
+    stmt = select(Shop).options(selectinload(Shop.channels)).order_by(Shop.id)
+    if shop_id is not None:
+        stmt = stmt.where(Shop.id == shop_id)
+    return list((await session.scalars(stmt)).all())
+
+
+async def all_locations(session: AsyncSession, shop_id: int) -> list[tuple[ShopLocation, Point | None]]:
+    """Все точки магазина (и выключенные) с координатами."""
+    rows = await session.execute(
+        select(ShopLocation, func.ST_Y(ShopLocation.point), func.ST_X(ShopLocation.point))
+        .where(ShopLocation.shop_id == shop_id).order_by(ShopLocation.id)
+    )
+    return [(loc, Point(latitude=lat, longitude=lon) if lat is not None else None) for loc, lat, lon in rows.all()]
+
+
+async def create_shop(session: AsyncSession, slug: str, name: str, phone: str | None) -> Shop:
+    if await get_by_slug(session, slug):
+        raise ShopError(f"Магазин с адресом «{slug}» уже есть.")
+    shop = Shop(slug=slug, name=name.strip(), contact_phone=(phone or "").strip() or None, is_active=True)
+    session.add(shop)
+    await session.flush()
+    return shop
+
+
+async def save_location(
+    session: AsyncSession, shop_id: int, location: ShopLocation | None, *, name: str, address: str,
+    latitude: float | None, longitude: float | None, opening_hours: str | None, is_pickup: bool, is_active: bool,
+) -> ShopLocation:
+    """Создать (location=None) или изменить точку магазина."""
+    if location is None:
+        location = ShopLocation(shop_id=shop_id)
+        session.add(location)
+    location.name, location.address = name.strip(), address.strip()
+    location.point = point_wkt(latitude, longitude)
+    location.opening_hours = (opening_hours or "").strip() or None
+    location.is_pickup, location.is_active = is_pickup, is_active
+    await session.flush()
+    return location
+
+
+async def remove_staff_channel(session: AsyncSession, shop_id: int, provider: Provider) -> None:
+    await session.execute(
+        delete(ShopChannel).where(ShopChannel.shop_id == shop_id, ShopChannel.provider == provider,
+                                  ShopChannel.purpose == STAFF)
+    )

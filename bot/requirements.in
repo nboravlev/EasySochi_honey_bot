@@ -10,5 +10,7 @@ pydantic-settings>=2.10,<3
 # HTTP API для сайта и Mini App (api/)
 fastapi>=0.115,<1
 uvicorn>=0.35,<1
+# загрузка фото товаров в админке (multipart/form-data)
+python-multipart>=0.0.20,<1
 # часовые пояса для zoneinfo (Europe/Moscow): в slim-образе системной базы может не быть
 tzdata

@@ -2,17 +2,22 @@
 
 ⚠️ Перед каждым тестом пользовательские таблицы очищаются (TRUNCATE) — только тестовая база!
 """
+import json
 import os
+import time
 from dataclasses import dataclass
 from decimal import Decimal
+from types import SimpleNamespace
 
+import httpx
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 from telegram.ext import PicklePersistence
 
-from config import get_db_settings
+from api.telegram_auth import sign_init_data
+from config import get_db_settings, get_settings
 from db.models import Product, ProductSize, ProductType, Shop, ShopLocation, Size, User
 from domain.enums import Provider, Role
 from services import identity, shops
@@ -33,7 +38,7 @@ STRANGER = Person(6001, "Посторонний")
 USER_TABLES = (
     "tasting_signups, tasting_events, order_packages, order_delivery, orders, sessions, "
     "productsize_images, images, product_sizes, products, product_types, user_identities, users, sources, "
-    "shop_channels, notifications"
+    "shop_channels, notifications, admin_login_tokens, admin_sessions"
 )
 STOREFRONT = "kraspolhoney"
 SHOP_B = "test-shop-b"
@@ -181,3 +186,25 @@ async def bot(catalog, tmp_path):
         yield harness
     finally:
         await stop_bot(harness)
+
+
+def tma(person: Person, age_seconds: int = 0) -> dict[str, str]:
+    """Заголовок, который отправляет Telegram Mini App: initData, подписанная токеном бота."""
+    fields = {
+        "query_id": "AAE",
+        "auth_date": str(int(time.time()) - age_seconds),
+        "user": json.dumps({**person.as_dict(), "allows_write_to_pm": True}, ensure_ascii=False),
+    }
+    return {"Authorization": f"tma {sign_init_data(fields, get_settings().bot_token)}"}
+
+
+@pytest.fixture
+async def api(catalog):
+    """HTTP API (витрина и админка) поверх той же БД; Telegram — подделка. https: cookie админки — Secure."""
+    from api.main import create_app
+
+    telegram = FakeTelegram()
+    app = create_app(telegram_request=telegram, configure_logging=False)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test") as client:
+            yield SimpleNamespace(client=client, telegram=telegram)

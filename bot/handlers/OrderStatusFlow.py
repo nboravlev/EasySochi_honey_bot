@@ -1,12 +1,11 @@
 """Кнопки смены статуса заказа: подтвердить, готов, «заберу сегодня/завтра», выдан.
 
-Статус меняется через services.orders.transition (таблица переходов в domain.order_flow).
+Статус меняется через services.order_actions (так же, как в админке; переходы — domain.order_flow).
 Уведомления ставятся в очередь в той же транзакции и отправляются после commit: если Telegram
 не ответил — бот повторит, если покупатель заблокировал бота — действие продавца не откатывается.
 Действовать от имени магазина может только его персонал (can_manage_shop) — служебный чат
 магазина A не управляет заказами магазина B.
 """
-from collections.abc import Callable
 from datetime import timedelta
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -15,10 +14,11 @@ from telegram.ext import ContextTypes, ConversationHandler
 from db.db_async import get_async_session
 from db.models import Order
 from domain.enums import OrderStatus
-from domain.messages import Button, OutMessage, Recipient, ToShopStaff, ToUser
+from domain.messages import Button, OutMessage, ToShopStaff
 from domain.order_flow import InvalidTransition
 from handlers.ManagerOrdersConversation import handle_seller_orders
 from services import notifications, order_texts
+from services.order_actions import StaffAction, apply as apply_action, minutes as _minutes
 from services.orders import get_order, transition
 from utils.access import can_manage_shop, deny, get_actor, staff_only
 from utils.escape import safe_html
@@ -27,18 +27,8 @@ from utils.message_tricks import cleanup_messages
 from utils.delivery import deliver, undelivered_note
 from utils.timeutils import local_today
 
-# уведомление: кому, что, какое событие (для журнала очереди)
-Notice = tuple[Recipient, OutMessage, str]
-
-
 def _order_id(data: str) -> int:
     return int(data.rsplit("_", 1)[-1])
-
-
-def _map_button(order: Order) -> Button:
-    return Button(
-        "🧭 Показать на карте", action=f"show_map_{order.location_id}" if order.location_id else "show_map"
-    )
 
 
 async def _reject(query, order: Order | None) -> int:
@@ -51,31 +41,15 @@ async def _reject(query, order: Order | None) -> int:
     return ConversationHandler.END
 
 
-def _minutes(delta: timedelta) -> int:
-    return int(delta.total_seconds() // 60)
-
-
 def _from_orders_list(query, context: ContextTypes.DEFAULT_TYPE) -> bool:
     # «из списка» — только если кнопку нажали в личном кабинете, а не в служебном чате
     return bool(context.user_data.get("from_orders_list")) and query.message.chat.type == "private"
 
 
-async def _enqueue(session, notices: list[Notice]) -> list[int]:
-    pending = []
-    for to, message, kind in notices:
-        pending += notifications.ids_of(await notifications.enqueue(session, to, message, kind))
-    return pending
+async def _staff_transition(update: Update, action: StaffAction):
+    """Загрузить заказ, проверить права на его магазин и выполнить действие продавца.
 
-
-async def _staff_transition(
-    update: Update,
-    target: OrderStatus,
-    notices: Callable[[Order, timedelta], list[Notice]] = lambda order, spent: [],
-):
-    """Загрузить заказ, проверить права на его магазин и сменить статус.
-
-    notices(order, время_в_прежнем_статусе) вызывается в той же транзакции: может дописать данные
-    заказа и вернуть уведомления — они попадут в очередь вместе со сменой статуса.
+    Уведомления (services.order_actions) попадают в очередь в той же транзакции, что и смена статуса.
     Возвращает (order, время_в_прежнем_статусе, ID уведомлений) или (order|None, None, []),
     если действие не выполнено — тогда ответ пользователю уже отправлен.
     """
@@ -87,21 +61,16 @@ async def _staff_transition(
             await _reject(query, None)
             return None, None, []
         if not await can_manage_shop(update, order.shop_id):
-            await deny(update, f"order_{target.name.lower()}")
+            await deny(update, f"order_{action}")
             return order, None, []
         try:
-            spent = transition(order, target, actor_id=actor.user_id if actor else None)
+            result = apply_action(order, action, actor.user_id if actor else None)
         except InvalidTransition:
             await _reject(query, order)
             return order, None, []
-        pending = await _enqueue(session, notices(order, spent))
+        pending = await notifications.enqueue_all(session, result.notices)
         await session.commit()
-    return order, spent, pending
-
-
-def _confirmed_notices(order: Order, _waited: timedelta) -> list[Notice]:
-    message = OutMessage(order_texts.customer_confirmed(order), [[_map_button(order)]])
-    return [(ToUser(order.customer_id), message, "order_confirmed")]
+    return order, result.spent, pending
 
 
 @staff_only
@@ -109,7 +78,7 @@ async def order_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE)
     """Продавец подтвердил заказ: CREATED → PROCESSING."""
     query = update.callback_query
     await cleanup_messages(context)
-    order, waited, pending = await _staff_transition(update, OrderStatus.PROCESSING, _confirmed_notices)
+    order, waited, pending = await _staff_transition(update, StaffAction.CONFIRM)
     if waited is None:
         return ConversationHandler.END
 
@@ -135,24 +104,12 @@ async def order_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 
-def _ready_notices(order: Order, prepared_in: timedelta) -> list[Notice]:
-    order.session.last_action = {"ready_in": _minutes(prepared_in)}
-    message = OutMessage(order_texts.customer_ready(order), [
-        [_map_button(order)],
-        [Button("Планирую получить:", action="noop")],
-        [Button("🟢 сегодня", action=f"pickup_today_{order.id}"),
-         Button("🟡 завтра", action=f"pickup_tomorrow_{order.id}"),
-         Button("🔵 завтра+", action=f"pickup_later_{order.id}")],
-    ])
-    return [(ToUser(order.customer_id), message, "order_ready")]
-
-
 @staff_only
 async def order_ready_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Продавец собрал заказ: PROCESSING → READY, покупатель выбирает день получения."""
     query = update.callback_query
     await cleanup_messages(context)
-    order, prepared_in, pending = await _staff_transition(update, OrderStatus.READY, _ready_notices)
+    order, prepared_in, pending = await _staff_transition(update, StaffAction.READY)
     if prepared_in is None:
         return ConversationHandler.END
 
@@ -203,7 +160,9 @@ async def customer_button_handler(update: Update, context: ContextTypes.DEFAULT_
             order_texts.manager_pickup_planned(order, pickup_date),
             [[Button("Покупатель получил заказ", action=f"order_complit_{order.id}")]],
         )
-        pending = await _enqueue(session, [(ToShopStaff(order.shop_id), message, "order_pickup_planned")])
+        pending = await notifications.enqueue_all(
+            session, [(ToShopStaff(order.shop_id), message, "order_pickup_planned")]
+        )
         await session.commit()
 
     await query.answer()
@@ -223,22 +182,12 @@ async def customer_button_handler(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 
-def _received_notices(order: Order, _spent: timedelta) -> list[Notice]:
-    return [
-        (ToUser(order.customer_id),
-         OutMessage("❤️ Спасибо, что выбрали наш мёд! Будем рады видеть вас снова!"), "order_received"),
-        (ToShopStaff(order.shop_id),
-         OutMessage(f"Заказ №{order.id} выдан покупателю.\nОплачено {order_texts.rub(order.total_price)}"),
-         "order_received"),
-    ]
-
-
 @staff_only
 async def order_complit_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Продавец выдал заказ: READY/CUSTOMER_NOTIFIED → RECEIVED."""
     query = update.callback_query
     await cleanup_messages(context)
-    order, spent, pending = await _staff_transition(update, OrderStatus.RECEIVED, _received_notices)
+    order, spent, pending = await _staff_transition(update, StaffAction.RECEIVED)
     if spent is None:
         return ConversationHandler.END
 

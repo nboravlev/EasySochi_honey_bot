@@ -68,22 +68,30 @@ async def _vk_user(session: AsyncSession, launch_params: str) -> User:
     return user
 
 
-async def current_user(
-    session: Annotated[AsyncSession, Depends(db)],
-    authorization: Annotated[str | None, Header()] = None,
-) -> User:
-    """Покупатель по заголовку Authorization с подписанными платформой данными:
+def has_platform_auth(authorization: str | None) -> bool:
+    scheme, _, payload = (authorization or "").partition(" ")
+    return bool(payload) and scheme.lower() in ("tma", "vk")
+
+
+async def user_from_authorization(session: AsyncSession, authorization: str | None) -> User:
+    """Пользователь по заголовку Authorization с подписанными платформой данными:
 
     - «tma <initData>» — Telegram Mini App;
     - «vk <параметры запуска>» — VK Mini App.
 
     Пользователь создаётся при первом входе — так же, как при /start в боте.
     """
-    scheme, _, payload = (authorization or "").partition(" ")
-    scheme = scheme.lower()
-    if not payload or scheme not in ("tma", "vk"):
+    if not has_platform_auth(authorization):
         raise _unauthorized(LOGIN_HINT)
-    return await (_telegram_user if scheme == "tma" else _vk_user)(session, payload)
+    scheme, _, payload = authorization.partition(" ")
+    return await (_telegram_user if scheme.lower() == "tma" else _vk_user)(session, payload)
+
+
+async def current_user(
+    session: Annotated[AsyncSession, Depends(db)],
+    authorization: Annotated[str | None, Header()] = None,
+) -> User:
+    return await user_from_authorization(session, authorization)
 
 
 # типы параметров маршрутов: `user: CurrentUser`, `session: DbSession`, `notifications: Notifications`

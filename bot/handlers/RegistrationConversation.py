@@ -368,6 +368,12 @@ async def show_manager_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         [InlineKeyboardButton("📨 Мои заказы", callback_data=f"honey_orders_{user.id}"),
         InlineKeyboardButton("📣 Приглашение ", callback_data="honey_invite")]
     ]
+    # админка как Telegram Mini App (вход по подписи Telegram); в браузере — ссылка по /admin
+    webapp_url = get_settings().webapp_url
+    if webapp_url and update.effective_chat.type == "private":
+        keyboard.append([InlineKeyboardButton(
+            "⚙️ Админка", web_app=WebAppInfo(f"{webapp_url.rstrip('/')}/admin/")
+        )])
     # менеджер, назначенный до первого /start, ещё без имени в БД
     name = user.firstname or (update.effective_user.first_name if update.effective_user else "")
     msg = await send_message(update,

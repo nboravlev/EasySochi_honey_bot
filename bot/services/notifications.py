@@ -178,3 +178,11 @@ async def backlog(session: AsyncSession) -> dict[str, int]:
 
 def ids_of(rows: Iterable[Notification]) -> list[int]:
     return [row.id for row in rows]
+
+
+async def enqueue_all(session: AsyncSession, notices: Iterable[tuple[Recipient, OutMessage, str]]) -> list[int]:
+    """Поставить в очередь несколько уведомлений (кому, что, событие); вернуть ID строк."""
+    pending: list[int] = []
+    for to, message, kind in notices:
+        pending += ids_of(await enqueue(session, to, message, kind))
+    return pending

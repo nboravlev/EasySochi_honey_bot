@@ -3,10 +3,10 @@ from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, U
 from telegram.ext import ContextTypes, ConversationHandler
 
 from db.db_async import get_async_session
-from domain.messages import OutMessage, ToUser
 from domain.order_flow import InvalidTransition
-from services import notifications, order_texts
-from services.orders import MAX_REASON_LENGTH, decline, get_order
+from services import notifications
+from services.order_actions import StaffAction, apply as apply_action
+from services.orders import MAX_REASON_LENGTH, get_order
 from utils.access import can_manage_shop, get_actor, staff_only
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
@@ -54,7 +54,7 @@ async def booking_decline_reason(update: Update, context: ContextTypes.DEFAULT_T
             return ConversationHandler.END
         actor = await get_actor(update)
         try:
-            decline(order, reason, actor_id=actor.user_id if actor else None)
+            result = apply_action(order, StaffAction.DECLINE, actor.user_id if actor else None, reason)
         except InvalidTransition:
             await update.message.reply_text(
                 f"⛔ Нельзя отклонить заказ в статусе <b>{safe_html(order.status.name)}</b>.",
@@ -62,9 +62,7 @@ async def booking_decline_reason(update: Update, context: ContextTypes.DEFAULT_T
                 parse_mode="HTML",
             )
             return ConversationHandler.END
-        pending = notifications.ids_of(await notifications.enqueue(
-            session, ToUser(order.customer_id), OutMessage(order_texts.customer_declined(order)), "order_declined"
-        ))
+        pending = await notifications.enqueue_all(session, result.notices)
         await session.commit()
 
     structured_logger.info(
