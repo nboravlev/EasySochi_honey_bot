@@ -1,4 +1,4 @@
-import { authHeader } from "./telegram";
+import { platform } from "./platform";
 import type { Catalog, Config, Me, Order } from "./types";
 
 export class ApiError extends Error {
@@ -24,7 +24,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     response = await fetch(`/api${path}`, {
       ...init,
-      headers: { "Content-Type": "application/json", ...authHeader(), ...init.headers },
+      headers: { "Content-Type": "application/json", ...platform().authHeader(), ...init.headers },
     });
   } catch {
     throw new ApiError(0, "Нет связи с сервером. Проверьте интернет.");

@@ -1,3 +1,4 @@
+import { platform } from "../platform";
 import type { Order } from "../types";
 import { OrderCard } from "./OrdersScreen";
 
@@ -8,7 +9,7 @@ export function DoneScreen({ order, onOrders, onCatalog }: { order: Order; onOrd
         ✅
       </div>
       <h1>Заказ №{order.id} создан</h1>
-      <p className="muted">Продавец подтвердит заказ — уведомление придёт в чат с ботом.</p>
+      <p className="muted">{platform().notificationsHint}</p>
       <ul className="orders">
         <OrderCard order={order} />
       </ul>

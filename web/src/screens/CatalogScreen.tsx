@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { ErrorBox, Loader, Photo, Section } from "../components";
 import { mapUrl, minPrice, rub } from "../format";
-import { openExternal } from "../telegram";
+import { platform } from "../platform";
 import type { Catalog, Product } from "../types";
 
 interface Props {
@@ -63,7 +63,7 @@ export function CatalogScreen({ catalog, error, onRetry, onOpen }: Props) {
                   {loc.opening_hours && <div className="muted">{loc.opening_hours}</div>}
                 </div>
                 {map && (
-                  <button className="button button--secondary" onClick={() => openExternal(map)}>
+                  <button className="button button--secondary" onClick={() => platform().openExternal(map)}>
                     На карте
                   </button>
                 )}

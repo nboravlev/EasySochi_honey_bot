@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { errorMessage } from "./api";
 import { mapUrl, minPrice, rub, sizeLabel } from "./format";
-import { linkedProductId } from "./telegram";
+import { isVkLaunch, linkedProductId, withTimeout } from "./platform";
 import type { Product } from "./types";
 
 describe("форматирование", () => {
@@ -36,6 +36,20 @@ describe("ссылка на товар", () => {
     expect(linkedProductId(undefined, "?product=7")).toBe(7);
     expect(linkedProductId("promo", "?product=abc")).toBeNull();
     expect(linkedProductId(undefined, "")).toBeNull();
+    expect(linkedProductId("product=5", "")).toBe(5); // VK: vk.com/app123#product=5
+  });
+});
+
+describe("платформа", () => {
+  it("запуск из VK — по подписанным параметрам в адресе", () => {
+    expect(isVkLaunch("?vk_app_id=1&vk_user_id=2&vk_ts=3&sign=abc")).toBe(true);
+    expect(isVkLaunch("?vk_app_id=1")).toBe(false);
+    expect(isVkLaunch("?product=1")).toBe(false);
+  });
+
+  it("вызов VK Bridge без ответа не вешает заказ", async () => {
+    await expect(withTimeout(Promise.resolve(1), 50)).resolves.toBe(1);
+    await expect(withTimeout(new Promise(() => undefined), 20)).rejects.toThrow("не ответил");
   });
 });
 

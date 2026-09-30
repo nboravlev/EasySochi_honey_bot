@@ -23,6 +23,25 @@
   }
 }
 
+/* VK сообщает тему приложения явно (VKWebAppUpdateConfig) — она важнее системной */
+:root[data-appearance="dark"] {
+  --bg: #19191a;
+  --bg-secondary: #232324;
+  --text: #e1e3e6;
+  --hint: #939699;
+  --link: #f0b43c;
+  color-scheme: dark;
+}
+
+:root[data-appearance="light"] {
+  --bg: #ffffff;
+  --bg-secondary: #f2f3f5;
+  --text: #000000;
+  --hint: #818c99;
+  --link: #b36b00;
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -284,6 +303,31 @@ button {
   background: var(--accent);
   color: var(--accent-text);
   font-weight: 600;
+}
+
+.button--wide {
+  width: 100%;
+  padding: 14px 18px;
+}
+
+.button:disabled {
+  opacity: 0.6;
+}
+
+/* своя кнопка «Заказать» (VK: у платформы нет родной) — прилипает к низу экрана */
+.order-bar {
+  position: sticky;
+  bottom: 0;
+  margin: 16px -16px 0;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-top: 1px solid var(--bg-secondary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .button--secondary {

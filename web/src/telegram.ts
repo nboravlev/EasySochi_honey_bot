@@ -48,10 +48,6 @@ export function initTelegram(): void {
   webApp.expand();
 }
 
-export function authHeader(): Record<string, string> {
-  return insideTelegram && webApp ? { Authorization: `tma ${webApp.initData}` } : {};
-}
-
 /** Бот пишет покупателю статусы заказа — для этого нужно разрешение писать в личку. */
 export function ensureWriteAccess(): Promise<boolean> {
   const user = webApp?.initDataUnsafe.user;
@@ -72,10 +68,3 @@ export function openExternal(url: string): void {
   }
 }
 
-/** Товар, на который ведёт ссылка: t.me/<бот>/<app>?startapp=product_12 или сайт ?product=12. */
-export function linkedProductId(startParam?: string, search: string = window.location.search): number | null {
-  const fromStart = startParam?.match(/^product_(\d+)$/)?.[1];
-  const fromQuery = new URLSearchParams(search).get("product");
-  const value = Number(fromStart ?? fromQuery);
-  return Number.isInteger(value) && value > 0 ? value : null;
-}

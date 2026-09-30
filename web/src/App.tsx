@@ -3,11 +3,11 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Loader, TabBar, type Tab } from "./components";
 import { useBackButton, useLoad } from "./hooks";
+import { linkedProductId, platform } from "./platform";
 import { CatalogScreen } from "./screens/CatalogScreen";
 import { DoneScreen } from "./screens/DoneScreen";
 import { OrdersScreen } from "./screens/OrdersScreen";
 import { ProductScreen } from "./screens/ProductScreen";
-import { insideTelegram, linkedProductId, webApp } from "./telegram";
 import type { Order } from "./types";
 
 type Screen =
@@ -17,8 +17,16 @@ type Screen =
   | { name: "done"; order: Order };
 
 function initialStack(): Screen[] {
-  const productId = linkedProductId(webApp?.initDataUnsafe.start_param);
+  const productId = linkedProductId(platform().startParam());
   return productId ? [{ name: "catalog" }, { name: "product", productId }] : [{ name: "catalog" }];
+}
+
+/** Имя покупателя для продавца: VK не передаёт его серверу — берём из профиля платформы один раз. */
+async function fillProfileName(): Promise<void> {
+  const me = await api.me();
+  if (me.first_name) return;
+  const name = await platform().profileName();
+  if (name) await api.updateMe({ first_name: name.slice(0, 50) });
 }
 
 export function App() {
@@ -26,6 +34,7 @@ export function App() {
   const config = useLoad(api.config);
   const [stack, setStack] = useState<Screen[]>(initialStack);
   const screen = stack[stack.length - 1];
+  const { canOrder } = platform();
 
   const push = (next: Screen) => setStack((s) => [...s, next]);
   const back = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
@@ -36,6 +45,9 @@ export function App() {
     // тело в скобках: в новых Chromium scrollTo возвращает Promise, а React принял бы его за функцию очистки
     window.scrollTo(0, 0);
   }, [screen]);
+  useEffect(() => {
+    if (canOrder) fillProfileName().catch(() => undefined);
+  }, [canOrder]);
 
   let content;
   switch (screen.name) {
@@ -57,7 +69,7 @@ export function App() {
         content = (
           <ProductScreen
             product={product}
-            botUrl={config.data?.bot_url ?? null}
+            config={config.data}
             onBack={back}
             onOrdered={(order) => {
               setStack([{ name: "catalog" }, { name: "done", order }]);
@@ -77,9 +89,9 @@ export function App() {
 
   const tab = screen.name === "catalog" || screen.name === "orders" ? screen.name : null;
   return (
-    <div className={insideTelegram && tab ? "app app--tabs" : "app"}>
+    <div className={canOrder && tab ? "app app--tabs" : "app"} data-platform={platform().name}>
       <main>{content}</main>
-      {insideTelegram && tab && <TabBar active={tab} onSelect={open} />}
+      {canOrder && tab && <TabBar active={tab} onSelect={open} />}
     </div>
   );
 }

@@ -52,6 +52,8 @@ export interface Catalog {
 export interface Config {
   bot_url: string | null;
   marketplace: boolean;
+  vk_group_id: number | null; // сообщество VK, от которого придут уведомления
+  vk_app_url: string | null; // VK Mini App витрины
 }
 
 export interface Me {

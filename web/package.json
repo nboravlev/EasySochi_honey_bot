@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@vkontakte/vk-bridge": "^3.0.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

@@ -4,20 +4,21 @@ import { api, ApiError } from "../api";
 import { ErrorBox, Photo, Section } from "../components";
 import { rub, sizeLabel } from "../format";
 import { useMainButton } from "../hooks";
-import { ensureWriteAccess, haptic, insideTelegram, openExternal } from "../telegram";
-import type { Order, Product } from "../types";
+import { platform } from "../platform";
+import type { Config, Order, Product } from "../types";
 
 const MAX_QUANTITY = 20; // как в боте (utils/constants.py)
 const MAX_COMMENT = 255;
 
 interface Props {
   product: Product;
-  botUrl: string | null;
+  config: Config | null;
   onOrdered: (order: Order) => void;
   onBack: () => void;
 }
 
-export function ProductScreen({ product, botUrl, onOrdered, onBack }: Props) {
+export function ProductScreen({ product, config, onOrdered, onBack }: Props) {
+  const current = platform();
   const [offerId, setOfferId] = useState(product.offers[0]?.id);
   const [quantity, setQuantity] = useState(1);
   const [comment, setComment] = useState("");
@@ -28,7 +29,7 @@ export function ProductScreen({ product, botUrl, onOrdered, onBack }: Props) {
 
   // телефон для связи: подставляем сохранённый (из бота или прошлого заказа)
   useEffect(() => {
-    if (!insideTelegram) return;
+    if (!current.canOrder) return;
     api
       .me()
       .then((me) => {
@@ -36,36 +37,38 @@ export function ProductScreen({ product, botUrl, onOrdered, onBack }: Props) {
         setPhone(me.phone ?? "");
       })
       .catch(() => undefined);
-  }, []);
+  }, [current.canOrder]);
 
   const offer = product.offers.find((o) => o.id === offerId);
   const total = offer ? Number(offer.price) * quantity : 0;
+  const orderLabel = `Заказать · ${rub(total)}`;
 
   async function submit() {
     if (!offer || sending) return;
     setSending(true);
     setError(null);
     try {
-      await ensureWriteAccess();
+      // разрешение писать человеку (Telegram — в личку, VK — от сообщества); отказ заказу не мешает
+      await current.prepareOrder({ vkGroupId: config?.vk_group_id ?? null });
       if (phone.trim() !== (savedPhone ?? "")) {
         await api.updateMe({ phone: phone.trim() });
       }
       const order = await api.createOrder({ product_size_id: offer.id, quantity, comment: comment.trim() });
-      haptic("success");
+      current.haptic("success");
       onOrdered(order);
     } catch (e) {
-      haptic("error");
+      current.haptic("error");
       setError(e instanceof ApiError ? e.message : "Не удалось оформить заказ.");
     } finally {
       setSending(false);
     }
   }
 
-  useMainButton(insideTelegram && offer ? `Заказать · ${rub(total)}` : null, submit, sending);
+  useMainButton(current.canOrder && current.nativeMainButton && offer ? orderLabel : null, submit, sending);
 
   return (
     <article className="product">
-      {!insideTelegram && (
+      {!current.nativeBackButton && (
         <button className="back" onClick={onBack}>
           ← Каталог
         </button>
@@ -97,7 +100,7 @@ export function ProductScreen({ product, botUrl, onOrdered, onBack }: Props) {
         </div>
       </Section>
 
-      {insideTelegram ? (
+      {current.canOrder ? (
         <>
           <Section title="Количество">
             <div className="stepper">
@@ -127,15 +130,31 @@ export function ProductScreen({ product, botUrl, onOrdered, onBack }: Props) {
             <div className="muted">Самовывоз, оплата при получении</div>
           </div>
           {error && <ErrorBox message={error} />}
+
+          {/* своя кнопка там, где у платформы нет родной (VK) */}
+          {!current.nativeMainButton && offer && (
+            <div className="order-bar">
+              <button className="button button--wide" disabled={sending} onClick={submit}>
+                {sending ? "Оформляем…" : orderLabel}
+              </button>
+            </div>
+          )}
         </>
       ) : (
         <Section>
-          <p className="muted">Заказать мёд можно в нашем Telegram-боте — там же придут уведомления о заказе.</p>
-          {botUrl && (
-            <button className="button" onClick={() => openExternal(botUrl)}>
-              Заказать в Telegram
-            </button>
-          )}
+          <p className="muted">Заказать мёд можно в Telegram или ВКонтакте — туда же придут уведомления о заказе.</p>
+          <div className="actions">
+            {config?.bot_url && (
+              <button className="button" onClick={() => current.openExternal(config.bot_url!)}>
+                Заказать в Telegram
+              </button>
+            )}
+            {config?.vk_app_url && (
+              <button className="button button--secondary" onClick={() => current.openExternal(`${config.vk_app_url}#product=${product.id}`)}>
+                Заказать во ВКонтакте
+              </button>
+            )}
+          </div>
         </Section>
       )}
     </article>

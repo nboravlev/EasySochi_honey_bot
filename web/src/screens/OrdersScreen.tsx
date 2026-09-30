@@ -2,7 +2,7 @@ import { api } from "../api";
 import { ErrorBox, Loader } from "../components";
 import { dateTime, mapUrl, rub, sizeLabel, STATUS_TONE } from "../format";
 import { useLoad } from "../hooks";
-import { openExternal } from "../telegram";
+import { platform } from "../platform";
 import type { Order } from "../types";
 
 export function OrdersScreen({ onCatalog }: { onCatalog: () => void }) {
@@ -57,7 +57,7 @@ export function OrderCard({ order }: { order: Order }) {
         <div className="order__pickup">
           <span>📍 {order.pickup.address}</span>
           {map && (
-            <button className="link" onClick={() => openExternal(map)}>
+            <button className="link" onClick={() => platform().openExternal(map)}>
               на карте
             </button>
           )}
