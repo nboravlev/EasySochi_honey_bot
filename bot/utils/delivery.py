@@ -34,6 +34,9 @@ async def deliver(bot: Bot | None, notification_ids: list[int], *, pace: float =
     vk = vk_delivery.client()
     if vk is not None:
         result += await vk_delivery.deliver(vk, notification_ids, pace=pace)
+    # строки, которые сейчас никто не взял (Telegram недоступен, строку отправляет другой процесс),
+    # остались в очереди — их дошлёт повтор; это «ждёт», а не «не доставлено»
+    result.queued += len(notification_ids) - (result.sent + result.queued + result.failed)
     return result
 
 

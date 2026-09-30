@@ -110,3 +110,13 @@ def test_undelivered_note():
     assert "повторит" in undelivered_note(Delivery(queued=1))
     assert "заблокировал" in undelivered_note(Delivery(failed=1), who="Гость")
     assert "Гость" in undelivered_note(Delivery(), who="Гость")
+
+
+async def test_rows_nobody_took_count_as_queued(monkeypatch):
+    """Telegram недоступен (bot=None) — строки ждут повтора, продавцу не пишем «не доставлено»."""
+    from utils import delivery, vk_delivery
+
+    monkeypatch.setattr(vk_delivery, "client", lambda: None)
+    result = await delivery.deliver(None, [1, 2])
+    assert (result.sent, result.queued, result.failed) == (0, 2, 0)
+    assert "повторит" in undelivered_note(result)
