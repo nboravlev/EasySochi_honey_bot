@@ -60,7 +60,8 @@ async def test_public_catalog(api, catalog):
     assert data["types"] == [product["type"]]
 
     config = (await api.client.get("/api/config")).json()
-    assert config == {"bot_url": "https://t.me/honey_test_bot", "marketplace": False}
+    assert config == {"bot_url": "https://t.me/honey_test_bot", "marketplace": False,
+                      "vk_group_id": None, "vk_app_url": None}   # VK не настроен
 
 
 async def test_account_needs_telegram_signature(api):

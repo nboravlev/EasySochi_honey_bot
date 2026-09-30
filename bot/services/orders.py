@@ -5,7 +5,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import Order, ProductSize, Session, Size
+from db.models import Order, ProductSize, Session, Size, User
 from domain.enums import OrderStatus, Role
 from domain.order_flow import check_transition
 from services import shops
@@ -19,7 +19,7 @@ MAX_ORDERS_PER_HOUR = 10  # с сайта / Mini App; в боте заказ и�
 ORDER_DETAILS = (
     selectinload(Order.product_size).selectinload(ProductSize.product),
     selectinload(Order.product_size).selectinload(ProductSize.sizes).selectinload(Size.package),
-    selectinload(Order.user),
+    selectinload(Order.user).selectinload(User.identities),   # контакты покупателя в других платформах
     selectinload(Order.manager),
     selectinload(Order.status),
     selectinload(Order.session),

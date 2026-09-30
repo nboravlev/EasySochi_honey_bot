@@ -7,7 +7,7 @@ from telegram.ext import (
 from domain.messages import OutMessage, ToUser
 from utils.access import staff_only
 from utils.escape import safe_html
-from utils.telegram_delivery import notify, undelivered_note
+from utils.delivery import notify, undelivered_note
 
 REPLY_WAITING = 1
 

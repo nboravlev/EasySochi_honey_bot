@@ -11,7 +11,8 @@ from domain.enums import NotificationStatus
 from domain.messages import Button, OutMessage
 from services import notifications
 from utils import telegram_delivery
-from utils.telegram_delivery import Delivery, render, undelivered_note
+from utils.delivery import Delivery, undelivered_note
+from utils.telegram_delivery import render
 from utils.timeutils import utcnow
 
 MESSAGE = OutMessage("<b>Заказ</b>", [[Button("Карта", action="show_map_1"), Button("Сайт", url="https://x.ru")]])

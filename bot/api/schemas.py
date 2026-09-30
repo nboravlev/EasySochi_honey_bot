@@ -59,6 +59,8 @@ class CatalogOut(BaseModel):
 class ConfigOut(BaseModel):
     bot_url: str | None      # ссылка на бота: оформить заказ вне Telegram
     marketplace: bool
+    vk_group_id: int | None = None   # сообщество VK, от которого придут уведомления (спросить разрешение)
+    vk_app_url: str | None = None    # VK Mini App витрины
 
 
 class MeOut(BaseModel):

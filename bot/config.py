@@ -72,6 +72,23 @@ class Settings(_Base):
     # сколько часов действительна подпись Telegram Mini App (initData) — защита от повтора старых запросов
     webapp_auth_max_age_hours: int = 24
 
+    # VK Mini App (та же витрина внутри ВКонтакте). Пусто — VK выключен.
+    # ID приложения и «Защищённый ключ» — в настройках приложения на vk.com/apps?act=manage
+    vk_app_id: int | None = None
+    vk_app_secret: str = ""
+    # сообщество, от имени которого бот пишет покупателям VK (уведомления о заказе),
+    # и его ключ доступа с правом «Сообщения сообщества»
+    vk_group_id: int | None = None
+    vk_group_token: str = ""
+
+    @property
+    def vk_auth_enabled(self) -> bool:
+        return bool(self.vk_app_id and self.vk_app_secret)
+
+    @property
+    def vk_messages_enabled(self) -> bool:
+        return bool(self.vk_group_id and self.vk_group_token)
+
     @cached_property
     def manager_ids(self) -> frozenset[int]:
         """MANAGER_LIST плюс владелец — для первого запуска. Права проверяются по users.role_id."""

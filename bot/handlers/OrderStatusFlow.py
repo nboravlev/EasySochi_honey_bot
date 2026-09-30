@@ -24,7 +24,7 @@ from utils.access import can_manage_shop, deny, get_actor, staff_only
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
 from utils.message_tricks import cleanup_messages
-from utils.telegram_delivery import deliver, undelivered_note
+from utils.delivery import deliver, undelivered_note
 from utils.timeutils import local_today
 
 # уведомление: кому, что, какое событие (для журнала очереди)

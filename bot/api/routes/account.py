@@ -2,7 +2,7 @@
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import CurrentUser, DbSession, Telegram
+from api.deps import CurrentUser, DbSession, Notifications
 from api.schemas import LocationOut, MeOut, MeUpdate, OrderCreate, OrderOut, OrderStatusOut, ShopRef
 from db.models import Order, User
 from domain.enums import OrderStatus
@@ -10,7 +10,7 @@ from domain.messages import ToShopStaff, ToUser
 from services import notifications, order_notices, orders, shops
 from utils.constants import MAX_PRODUCT_COUNT
 from utils.logging_config import structured_logger
-from utils.telegram_delivery import log_no_channel
+from utils.delivery import log_no_channel
 
 CHANNEL = "webapp"
 
@@ -85,7 +85,7 @@ async def create_order(
     background: BackgroundTasks,
     user: CurrentUser,
     session: DbSession,
-    telegram: Telegram,
+    notifier: Notifications,
 ) -> OrderOut:
     """Оформить заказ (самовывоз). Продавцу — карточка в служебный чат, покупателю — сообщение в чат бота;
     дальше статусы приходят туда же, как при заказе через бота."""
@@ -107,7 +107,7 @@ async def create_order(
     await session.commit()
     if not staff:
         log_no_channel(ToShopStaff(order.shop_id), "order_created")
-    background.add_task(telegram.deliver, notifications.ids_of(staff + customer))
+    background.add_task(notifier.deliver, notifications.ids_of(staff + customer))
 
     structured_logger.info(
         "new order", user_id=user.id, order_id=order.id, action="order_created",

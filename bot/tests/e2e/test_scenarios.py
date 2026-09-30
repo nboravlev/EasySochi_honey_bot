@@ -8,7 +8,7 @@ from PIL import Image as PILImage
 
 from config import get_settings
 from domain.enums import OrderStatus, Role, TastingStatus
-from utils.telegram_delivery import dispatch_due_job
+from utils.delivery import dispatch_due_job
 from utils.telegram_media import backfill_media_job
 from utils.timeutils import local_today
 

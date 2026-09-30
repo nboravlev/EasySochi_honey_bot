@@ -1,18 +1,19 @@
-"""Связь API с Telegram: немедленная доставка уведомлений из очереди и ссылка на бота.
+"""Уведомления из API: немедленная доставка из очереди во все платформы и ссылка на бота.
 
-Если Telegram недоступен при старте или отправке, API работает дальше: уведомления остаются
-в очереди, их дошлёт бот (utils.telegram_delivery.dispatch_due_job).
+Если Telegram недоступен при старте или отправке, API работает дальше: его уведомления остаются
+в очереди, их дошлёт бот (utils.delivery.dispatch_due_job). VK-уведомления уходят через сообщество.
 """
 import asyncio
 
 from telegram import Bot
 from telegram.request import BaseRequest
 
+from utils import vk_delivery
+from utils.delivery import deliver
 from utils.logging_config import structured_logger
-from utils.telegram_delivery import deliver
 
 
-class TelegramGateway:
+class Notifier:
     def __init__(self, token: str, request: BaseRequest | None = None):
         self._bot = Bot(token, request=request)
         self._ready = False
@@ -39,14 +40,17 @@ class TelegramGateway:
 
     async def deliver(self, notification_ids: list[int]) -> None:
         """Фоновая задача после ответа клиенту: отправить только что поставленные уведомления."""
-        bot = await self.bot()
-        if bot is None or not notification_ids:
+        if not notification_ids:
             return
         try:
-            await deliver(bot, notification_ids)
+            await deliver(await self.bot(), notification_ids)
         except Exception as exc:  # строки остались pending — дошлёт бот
             structured_logger.error("API notification delivery failed", action="api_deliver_failed", exception=exc)
 
     async def close(self) -> None:
         if self._ready:
             await self._bot.shutdown()
+        vk = vk_delivery.client()
+        if vk is not None:
+            await vk.close()
+            vk_delivery.set_client(None)

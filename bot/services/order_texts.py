@@ -2,6 +2,7 @@
 from decimal import Decimal
 
 from db.models import Order
+from domain.enums import Provider
 from utils.escape import safe_html
 from utils.timeutils import format_local
 
@@ -27,6 +28,13 @@ def pickup_address(order: Order) -> str:
 
 def customer_name(order: Order) -> str:
     return safe_html(order.user.firstname or order.user.username) or "без имени"
+
+
+def customer_contacts(order: Order) -> str:
+    """Ссылки на покупателя в других платформах: продавцу — чтобы связаться (у покупателя из VK
+    может не быть телефона, а написать ему из Telegram нельзя)."""
+    vk = [f"https://vk.com/id{i.external_id}" for i in order.user.identities if i.provider == Provider.VK]
+    return f"\n🔗 ВКонтакте: {', '.join(vk)}" if vk else ""
 
 
 def draft_card(order: Order) -> str:
@@ -55,6 +63,7 @@ def manager_card(order: Order, title: str) -> str:
         f"💬 Комментарий клиента: {safe_html(order.customer_comment) or '—'}\n"
         f"👨: {customer_name(order)}\n"
         f"☎️ Номер: {safe_html(order.user.phone_number) or 'не указан'}"
+        f"{customer_contacts(order)}"
     )
 
 
@@ -69,7 +78,7 @@ def manager_list_card(order: Order, index: int, total: int) -> str:
         f"💰 Стоимость: {rub(order.total_price)}\n"
         f"💬 Комментарий клиента: {safe_html(order.customer_comment) or '—'}\n"
         f"👨: {customer_name(order)}\n"
-        f"☎️ Номер: {safe_html(order.user.phone_number) or 'не указан'}\n\n"
+        f"☎️ Номер: {safe_html(order.user.phone_number) or 'не указан'}{customer_contacts(order)}\n\n"
         f"📍 {index + 1} из {total}"
     )
 

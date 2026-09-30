@@ -26,7 +26,7 @@ def make_order(status=S.DRAFT, count=1, price="1500.00"):
             product=SimpleNamespace(name="Каштановый <мёд>"),
             sizes=SimpleNamespace(name=Decimal("1.0"), package=SimpleNamespace(name="Банка")),
         ),
-        user=SimpleNamespace(firstname="Анна", username=None, phone_number=None),
+        user=SimpleNamespace(firstname="Анна", username=None, phone_number=None, identities=[]),
     )
 
 
@@ -118,6 +118,11 @@ def test_manager_card_escapes_and_uses_local_time():
     assert "Каштановый &lt;мёд&gt;" in card
     assert "1 500 ₽" in card
     assert format_local(order.created_at) in card
+    assert "ВКонтакте" not in card
+
+    # покупатель из VK: продавцу — ссылка на профиль, чтобы связаться
+    order.user.identities = [SimpleNamespace(provider="vk", external_id="12345")]
+    assert "https://vk.com/id12345" in manager_card(order, "")
 
 
 def test_local_time_is_moscow_even_for_naive_utc():

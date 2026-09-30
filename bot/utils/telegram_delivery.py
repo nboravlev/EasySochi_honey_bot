@@ -1,43 +1,22 @@
-"""Доставка уведомлений из очереди (services.notifications) в Telegram.
+"""Адаптер очереди уведомлений для Telegram: отображение нейтрального сообщения и отправка.
 
-Хендлеры ставят сообщение в очередь — либо своей сессией вместе с изменением данных
-(notifications.enqueue + после commit deliver), либо одним вызовом notify — и сразу пытаются
-отправить. Что не ушло из-за сбоя Telegram, повторяет dispatch_due_job; бот заблокирован или
-чата нет — строка помечается failed. Исключения наружу не выходят.
+Вызывается через фасад utils.delivery (он же раздаёт строки другим платформам). Бот заблокирован
+или чата нет — строка failed; сбой сети или лимит Telegram — повтор позже. Исключения наружу не выходят.
 """
 import asyncio
-from dataclasses import dataclass
 from datetime import timedelta
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.error import BadRequest, ChatMigrated, Forbidden, RetryAfter
-from telegram.ext import ContextTypes
 
 from db.db_async import get_async_session
 from db.models import Notification
 from domain.enums import Provider
-from domain.messages import OutMessage, Recipient, ToShopStaff
+from domain.messages import OutMessage
 from services import notifications, shops
+from services.notifications import Delivery
 from utils.logging_config import structured_logger
-
-# Telegram: не больше ~30 сообщений в секунду от бота
-SEND_INTERVAL_SEC = 0.05
-DISPATCH_INTERVAL_SEC = 30
-DISPATCH_BATCH = 100
-
-
-@dataclass
-class Delivery:
-    """Итог немедленной отправки: отправлено / ждёт повтора / не будет доставлено."""
-    sent: int = 0
-    queued: int = 0
-    failed: int = 0
-
-    @property
-    def ok(self) -> bool:
-        return self.sent > 0
-
 
 def render(message: OutMessage) -> dict:
     """Нейтральное сообщение → параметры Bot.send_message."""
@@ -98,52 +77,6 @@ async def deliver(bot: Bot, notification_ids: list[int], *, pace: float = 0.0) -
                 continue  # уже отправлена, отправляется другим процессом или другая платформа
             outcome = await _send_one(bot, session, row)
             await session.commit()
-        setattr(result, outcome, getattr(result, outcome) + 1)
+        result.record(outcome)
     return result
 
-
-async def notify(bot: Bot, to: Recipient, message: OutMessage, kind: str) -> Delivery:
-    """Поставить в очередь отдельной транзакцией и сразу отправить."""
-    async with get_async_session() as session:
-        notification_ids = notifications.ids_of(await notifications.enqueue(session, to, message, kind))
-        await session.commit()
-    if not notification_ids:
-        log_no_channel(to, kind)
-    return await deliver(bot, notification_ids)
-
-
-def log_no_channel(to: Recipient, kind: str) -> None:
-    recipient = {"shop_id": to.shop_id} if isinstance(to, ToShopStaff) else {"user_id": to.user_id}
-    structured_logger.warning(
-        "Recipient has no Telegram channel", action="notify_no_channel", context={"kind": kind, **recipient},
-    )
-
-
-def undelivered_note(delivery: Delivery, who: str = "Покупатель") -> str:
-    """Приписка для продавца, если уведомление не ушло сразу."""
-    if delivery.ok:
-        return ""
-    if delivery.queued:
-        return f"\n⏳ {who} пока не получил уведомление: Telegram не ответил, бот повторит отправку."
-    return f"\n⚠️ {who} не получил уведомление (возможно, заблокировал бота)."
-
-
-async def dispatch_due_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Повторная отправка: всё, что не ушло сразу и чьё время пришло."""
-    async with get_async_session() as session:
-        due = await notifications.due_ids(session, Provider.TELEGRAM, limit=DISPATCH_BATCH)
-    if not due:
-        return
-    result = await deliver(context.bot, due, pace=SEND_INTERVAL_SEC)
-    structured_logger.info(
-        "Notification retries processed", action="notify_retry_batch",
-        context={"due": len(due), "sent": result.sent, "queued": result.queued, "failed": result.failed},
-    )
-
-
-async def purge_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    async with get_async_session() as session:
-        removed = await notifications.purge(session)
-        await session.commit()
-    if removed:
-        structured_logger.info("Old notifications purged", action="notify_purge", context={"removed": removed})

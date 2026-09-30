@@ -12,7 +12,7 @@ from utils.access import get_actor, manager_only, user_id_for_telegram
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
 from utils.message_tricks import cleanup_messages, send_message
-from utils.telegram_delivery import SEND_INTERVAL_SEC, deliver
+from utils.delivery import SEND_INTERVAL_SEC, deliver
 from utils.timeutils import BUSINESS_TZ, format_local, utcnow
 
 (ASK_DATE,

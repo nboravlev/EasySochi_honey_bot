@@ -9,7 +9,7 @@ from domain.enums import Provider
 from domain.messages import Button, OutMessage, ToShopStaff
 from services import identity, notifications, shops
 from utils.escape import safe_html
-from utils.telegram_delivery import deliver, log_no_channel
+from utils.delivery import deliver, log_no_channel
 
 SEND_PROBLEM = 1
 

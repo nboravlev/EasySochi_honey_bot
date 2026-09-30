@@ -16,7 +16,7 @@ from services.users import find_user, list_managers, set_manager
 from utils.access import is_owner, owner_only
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
-from utils.telegram_delivery import notify
+from utils.delivery import notify
 
 USAGE = (
     "Назначить: <code>/manager_add @username</code> или <code>/manager_add 123456789</code> (Telegram ID).\n"

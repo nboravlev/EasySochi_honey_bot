@@ -24,7 +24,7 @@ from services.orders import (
     transition,
 )
 from utils.access import user_id_for_telegram
-from utils.telegram_delivery import deliver, log_no_channel
+from utils.delivery import deliver, log_no_channel
 from utils.telegram_media import send_card
 
 NOT_REGISTERED_TEXT = "Чтобы оформить заказ, сначала пройдите короткую регистрацию: /start"

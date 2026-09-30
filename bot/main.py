@@ -43,7 +43,8 @@ from services.orders import expire_stale_drafts
 from services.shops import bootstrap_storefront, storefront_shop_id
 from services.users import bootstrap_managers
 from utils.logging_config import bind_update_context, setup_logging, structured_logger
-from utils.telegram_delivery import DISPATCH_INTERVAL_SEC, dispatch_due_job, purge_job
+from utils.delivery import DISPATCH_INTERVAL_SEC, dispatch_due_job, purge_job
+from utils import vk_delivery
 from utils.telegram_media import backfill_media_job
 
 USER_COMMANDS = [
@@ -90,6 +91,13 @@ async def expire_drafts_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         await session.commit()
     if expired:
         structured_logger.info("Stale drafts expired", action="drafts_expired", context={"count": expired})
+
+
+async def post_shutdown(application: Application) -> None:
+    vk = vk_delivery.client()
+    if vk is not None:
+        await vk.close()
+        vk_delivery.set_client(None)
 
 
 async def post_init(application: Application) -> None:
@@ -166,7 +174,7 @@ def build_application(
     """request — подмена HTTP-клиента Telegram (сквозные тесты), в работе не передаётся."""
     settings = get_settings()
 
-    builder = ApplicationBuilder().token(settings.bot_token).post_init(post_init)
+    builder = ApplicationBuilder().token(settings.bot_token).post_init(post_init).post_shutdown(post_shutdown)
     builder = builder.persistence(persistence or build_persistence())
     if request is not None:
         builder = builder.request(request).get_updates_request(request)

@@ -11,14 +11,14 @@ from datetime import datetime, timedelta
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config import get_settings
 from db.models import Notification, ShopChannel, UserIdentity
 from domain.enums import NotificationStatus, Provider
 from domain.messages import OutMessage, Recipient, ToShopStaff, ToUser
 from utils.timeutils import utcnow
 
-# платформы, в которые умеем доставлять сообщения сами (у WEB нет push-канала);
-# новая платформа добавляется сюда вместе со своим адаптером доставки
-PUSH_PROVIDERS = (Provider.TELEGRAM,)
+# служебные чаты магазина — только там, где работают кнопки продавца («Подтвердить» и т.п.): Telegram
+STAFF_PROVIDERS = (Provider.TELEGRAM,)
 
 # пауза перед повторной попыткой: после 1-й неудачи — 30 с, после 2-й — 2 мин, …
 RETRY_DELAYS = (
@@ -32,6 +32,33 @@ KEEP_SENT = timedelta(days=30)
 KEEP_FAILED = timedelta(days=90)
 
 
+def user_providers() -> tuple[Provider, ...]:
+    """Платформы, куда пишем человеку (у WEB push-канала нет). VK — если настроено сообщество VK;
+    новая платформа добавляется сюда вместе со своим адаптером доставки (utils/*_delivery.py)."""
+    if get_settings().vk_messages_enabled:
+        return (Provider.TELEGRAM, Provider.VK)
+    return (Provider.TELEGRAM,)
+
+
+@dataclass
+class Delivery:
+    """Итог немедленной отправки: отправлено / ждёт повтора / не будет доставлено."""
+    sent: int = 0
+    queued: int = 0
+    failed: int = 0
+
+    @property
+    def ok(self) -> bool:
+        return self.sent > 0
+
+    def record(self, outcome: str) -> None:
+        """outcome — sent / queued / failed (результат адаптера платформы)."""
+        setattr(self, outcome, getattr(self, outcome) + 1)
+
+    def __add__(self, other: "Delivery") -> "Delivery":
+        return Delivery(self.sent + other.sent, self.queued + other.queued, self.failed + other.failed)
+
+
 @dataclass(frozen=True)
 class Address:
     provider: str
@@ -43,14 +70,14 @@ async def addresses(session: AsyncSession, to: Recipient) -> list[Address]:
     if isinstance(to, ToUser):
         rows = await session.execute(
             select(UserIdentity.provider, UserIdentity.external_id)
-            .where(UserIdentity.user_id == to.user_id, UserIdentity.provider.in_(PUSH_PROVIDERS))
+            .where(UserIdentity.user_id == to.user_id, UserIdentity.provider.in_(user_providers()))
             .order_by(UserIdentity.id)
         )
     elif isinstance(to, ToShopStaff):
         rows = await session.execute(
             select(ShopChannel.provider, ShopChannel.address)
             .where(ShopChannel.shop_id == to.shop_id, ShopChannel.purpose == "staff",
-                   ShopChannel.provider.in_(PUSH_PROVIDERS))
+                   ShopChannel.provider.in_(STAFF_PROVIDERS))
             .order_by(ShopChannel.id)
         )
     else:

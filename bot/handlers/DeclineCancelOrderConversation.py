@@ -11,7 +11,7 @@ from utils.access import can_manage_shop, get_actor, staff_only
 from utils.escape import safe_html
 from utils.logging_config import structured_logger
 from utils.message_tricks import cleanup_messages
-from utils.telegram_delivery import deliver, undelivered_note
+from utils.delivery import deliver, undelivered_note
 
 DECLINE_REASON = 1
 SKIP_REASON_BUTTON = "отправка причины"

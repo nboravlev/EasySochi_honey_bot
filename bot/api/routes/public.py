@@ -2,10 +2,12 @@
 from fastapi import APIRouter, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import DbSession, Telegram
+from api.deps import DbSession, Notifications
 from api.schemas import CatalogOut, ConfigOut, LocationOut, OfferOut, ProductOut, ShopOut, ShopRef, TypeOut
 from db.models import Product
+from config import get_settings
 from services import catalog, shops
+from utils import vk_delivery
 
 MEDIA_URL = "/media/"
 CATALOG_CACHE_SECONDS = 60
@@ -61,5 +63,11 @@ async def get_catalog(response: Response, session: DbSession) -> CatalogOut:
 
 
 @router.get("/config", response_model=ConfigOut)
-async def get_config(session: DbSession, telegram: Telegram) -> ConfigOut:
-    return ConfigOut(bot_url=await telegram.bot_url(), marketplace=await shops.storefront_shop_id(session) is None)
+async def get_config(session: DbSession, notifier: Notifications) -> ConfigOut:
+    settings = get_settings()
+    return ConfigOut(
+        bot_url=await notifier.bot_url(),
+        marketplace=await shops.storefront_shop_id(session) is None,
+        vk_group_id=settings.vk_group_id if settings.vk_messages_enabled else None,
+        vk_app_url=vk_delivery.app_url() if settings.vk_auth_enabled else None,
+    )

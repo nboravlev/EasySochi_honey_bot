@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from telegram.request import BaseRequest
 
 from api.routes import account, public
-from api.telegram_gateway import TelegramGateway
+from api.notifier import Notifier
 from config import get_settings
 from db import db_async
 from utils.logging_config import bind_update_context, flush_logs, setup_logging, structured_logger
@@ -29,10 +29,10 @@ def create_app(telegram_request: BaseRequest | None = None, configure_logging: b
     async def lifespan(app: FastAPI):
         if configure_logging:
             setup_logging(log_dir=settings.log_dir, log_level=settings.log_level, file_name=API_LOG_FILE)
-        app.state.telegram = TelegramGateway(settings.bot_token, request=telegram_request)
+        app.state.notifier = Notifier(settings.bot_token, request=telegram_request)
         structured_logger.info("API started", action="api_started")
         yield
-        await app.state.telegram.close()
+        await app.state.notifier.close()
         await db_async.engine.dispose()
         if configure_logging:
             flush_logs()
