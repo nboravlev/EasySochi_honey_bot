@@ -1,6 +1,24 @@
+# Боевой контур honeybot. Собирать и запускать — скриптом ops/deploy.sh (сборка, теги образов,
+# бэкап, миграции, ожидание готовности). Тестовый контур — deploy/test/ (README там же).
+#
+# Имя проекта зафиксировано: compose выводит его из имени каталога, и в другом каталоге
+# (или при запуске из ops/) тома и сеть получили бы другой префикс — то есть пустые новые.
+# Значение совпадает с тем, что было до фиксации (каталог EasySochi_honey_bot).
+name: easysochi_honey_bot
+
+# Лимит логов Docker (docker logs): без него json-file растёт бесконечно
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db_honey:
-    build: ./db 
+    # Образы называются явно и получают тег сборки (ops/deploy.sh: короткий хеш коммита).
+    # Откат на прошлую сборку: TAG=<тег> docker compose up -d (см. OPERATIONS.md, раздел 1).
+    image: honeybot/db:${TAG:-latest}
+    build: ./db
     container_name: postgres_db_honey
     restart: always
     env_file: .env
@@ -17,14 +35,35 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging: *logging
+
+  # Миграции базы — при каждом запуске стека, до бота и API (они ждут её успешного завершения).
+  # Один запуск на всех: бот и API не накатывают миграции наперегонки. Упала миграция —
+  # бот и API не стартуют на несовместимой схеме, а docker compose up завершается ошибкой.
+  migrate_honey:
+    image: honeybot/bot:${TAG:-latest}
+    # образ собирает сервис bot_honey; тянуть его из Docker Hub нечего
+    pull_policy: never
+    command: ["alembic", "upgrade", "head"]
+    user: "1000:1000"
+    container_name: migrate_honey
+    restart: "no"
+    env_file: .env
+    depends_on:
+      db_honey:
+        condition: service_healthy
+    networks:
+      - tg_app_net_honey
+    logging: *logging
 
   bot_honey:
+    image: honeybot/bot:${TAG:-latest}
     build: ./bot
     user: "1000:1000"
     container_name: tg_bot_honey
     restart: unless-stopped
     env_file: .env
-    # код берётся из образа (docker compose up -d --build), а не с хоста
+    # код берётся из образа, а не с хоста
     volumes:
       - bot_logs_honey:/app/logs
       - bot_media_honey:/app/media
@@ -33,6 +72,8 @@ services:
     depends_on:
       db_honey:
         condition: service_healthy
+      migrate_honey:
+        condition: service_completed_successfully
     networks:
       - tg_app_net_honey
     # бот каждые 30 с обновляет /tmp/bot_heartbeat; старше 3 минут — процесс завис.
@@ -43,11 +84,13 @@ services:
       timeout: 10s
       start_period: 60s
       retries: 3
+    logging: *logging
 
-  # HTTP API витрины (сайт / Telegram Mini App): тот же образ, что у бота, команда api (uvicorn).
+  # HTTP API витрины и админки: тот же образ, что у бота, команда api (uvicorn).
   # Наружу не публикуется — к нему ходит только web_honey по сети Docker.
   api_honey:
-    build: ./bot
+    image: honeybot/bot:${TAG:-latest}
+    pull_policy: never
     command: ["api"]
     user: "1000:1000"
     container_name: api_honey
@@ -55,23 +98,27 @@ services:
     env_file: .env
     volumes:
       - bot_logs_honey:/app/logs
-      # фото товаров отдаёт API (владелец файлов — UID 1000); nginx только кэширует ответ
-      - bot_media_honey:/app/media:ro
+      # фото товаров: API отдаёт их витрине и сохраняет загруженные из админки
+      - bot_media_honey:/app/media
     depends_on:
       db_honey:
         condition: service_healthy
+      migrate_honey:
+        condition: service_completed_successfully
     networks:
       - tg_app_net_honey
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
-      interval: 60s
+      interval: 30s
       timeout: 10s
       start_period: 30s
       retries: 3
+    logging: *logging
 
-  # Витрина: собранный фронтенд (web/) + прокси /api и /media в api_honey.
-  # Внешний nginx-шлюз с HTTPS проксирует домен витрины сюда (см. OPERATIONS.md).
+  # Витрина и админка: собранный фронтенд (web/) + прокси /api и /media в api_honey.
+  # Внешний nginx-шлюз с HTTPS проксирует домен витрины сюда (см. OPERATIONS.md, раздел 11).
   web_honey:
+    image: honeybot/web:${TAG:-latest}
     build: ./web
     container_name: web_honey
     restart: unless-stopped
@@ -81,15 +128,23 @@ services:
       - api_honey
     networks:
       - tg_app_net_honey
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging: *logging
 
   log-viewer_honey:
+    image: honeybot/log-viewer:${TAG:-latest}
     build: ./log_viewer
     user: "1000:1000"
     container_name: log_viewer_honey
     restart: unless-stopped
     env_file: .env
     # Вьюер без авторизации, а в логах есть персональные данные: по умолчанию только localhost
-    # (доступ через SSH-туннель или nginx с basic-auth). LOG_VIEWER_BIND=0.0.0.0 — открыть наружу.
+    # (доступ через SSH-туннель или шлюз с basic-auth). LOG_VIEWER_BIND=0.0.0.0 — открыть наружу.
     ports:
       - "${LOG_VIEWER_BIND:-127.0.0.1}:${LOG_VIEWER_PORT}:${LOG_VIEWER_PORT}"
     environment:
@@ -101,6 +156,7 @@ services:
       - bot_honey
     networks:
       - tg_app_net_honey
+    logging: *logging
 
 volumes:
   honey_bot_postgres_data:

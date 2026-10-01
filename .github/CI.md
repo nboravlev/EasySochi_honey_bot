@@ -188,7 +188,7 @@ GitHub может не давать нажать *Merge*, пока CI красн
 ## Частые вопросы
 
 **CI выкатывает бот на сервер?** Нет. Выкатка по-прежнему вручную:
-`git pull` → `docker compose run --rm bot_honey alembic upgrade head` → `docker compose up -d --build`.
+`git pull` → `./ops/deploy.sh` (сборка, бэкап, миграции, запуск — OPERATIONS.md, раздел 1).
 
 **CI видит мой `.env`, токен бота, боевую базу?** Нет. `.env` не хранится в репозитории;
 CI работает с одноразовой тестовой базой и фиктивными значениями из `bot/tests/conftest.py`.

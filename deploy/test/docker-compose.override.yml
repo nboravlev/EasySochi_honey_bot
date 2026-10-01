@@ -1,0 +1,57 @@
+# Тестовый контур honeybot (test.easy-sochi.ru, test-logger.easy-sochi.ru).
+#
+# Docker Compose сам добавляет docker-compose.override.yml, лежащий рядом с docker-compose.yml.
+# В репозитории файл хранится здесь, а не в корне — чтобы не подхватиться на боевом сервере.
+# На тестовом сервере — символьная ссылка из корня репозитория (один раз):
+#   ln -s deploy/test/docker-compose.override.yml docker-compose.override.yml
+# После этого и ops/deploy.sh, и обычные docker compose … работают с тестовым контуром.
+# Инструкция: deploy/test/README.md.
+#
+# Отличия от боевого контура:
+# - нет отдельного диска RAID5: данные (база, фото, логи) — в каталоге DATA_DIR на том же диске,
+#   что и приложение, а не в /data/easysochi;
+# - свои имена проекта, контейнеров и образов — тест не пересекается с продом, даже если
+#   поднят на том же сервере (тома, сеть, теги :latest и уборка старых образов — раздельные).
+#   Префикс контейнеров «test_» должен совпадать с CONTAINER_PREFIX в .env (его читают скрипты ops/).
+
+name: easysochi_honey_bot_test
+
+services:
+  db_honey:
+    image: honeybot-test/db:${TAG:-latest}
+    container_name: test_postgres_db_honey
+    # тестовую базу не поднимаем принудительно после ручной остановки
+    restart: unless-stopped
+
+  migrate_honey:
+    image: honeybot-test/bot:${TAG:-latest}
+    container_name: test_migrate_honey
+
+  bot_honey:
+    image: honeybot-test/bot:${TAG:-latest}
+    container_name: test_tg_bot_honey
+
+  api_honey:
+    image: honeybot-test/bot:${TAG:-latest}
+    container_name: test_api_honey
+
+  web_honey:
+    image: honeybot-test/web:${TAG:-latest}
+    container_name: test_web_honey
+
+  log-viewer_honey:
+    image: honeybot-test/log-viewer:${TAG:-latest}
+    container_name: test_log_viewer_honey
+
+# Данные на том же диске, что и приложение: каталоги внутри DATA_DIR (абсолютный путь, задаётся в .env).
+# Подготовка каталогов и прав — deploy/test/README.md, шаг 2.
+volumes:
+  honey_bot_postgres_data:
+    driver_opts:
+      device: ${DATA_DIR:?задайте DATA_DIR в .env — каталог данных тестового контура}/postgres_honey
+  bot_media_honey:
+    driver_opts:
+      device: ${DATA_DIR:?задайте DATA_DIR в .env}/media_honey
+  bot_logs_honey:
+    driver_opts:
+      device: ${DATA_DIR:?задайте DATA_DIR в .env}/logs_honey

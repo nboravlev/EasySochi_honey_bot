@@ -95,6 +95,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Shell scripts (ops/, entrypoint)
         run: docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:stable -x -e SC1091 ops/*.sh bot/entrypoint.sh
+      - name: Compose configuration (production and test contour)
+        run: |
+          cp .env.example .env
+          docker compose config -q
+          cp deploy/test/.env.example .env
+          docker compose -f docker-compose.yml -f deploy/test/docker-compose.override.yml config -q
+          rm .env
       - run: docker build -t honey-bot ./bot
       - run: docker build -t honey-db ./db
       - run: docker build -t honey-log-viewer ./log_viewer

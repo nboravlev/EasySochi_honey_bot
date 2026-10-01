@@ -41,3 +41,6 @@ docs/
 # Инструменты
 .pytest_cache/
 .ruff_cache/
+
+# Тестовый контур: ссылка на deploy/test/docker-compose.override.yml (на боевом сервере её быть не должно)
+/docker-compose.override.yml

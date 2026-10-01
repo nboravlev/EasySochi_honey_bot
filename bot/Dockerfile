@@ -18,8 +18,8 @@ COPY . .
 # /app/media — фото товаров (том bot_media_honey, каталог на хосте должен принадлежать UID 1000).
 RUN useradd -m -u 1000 honeybot \
     && chmod +x /bot/entrypoint.sh \
-    && mkdir -p /app/state /app/media \
-    && chown -R honeybot:honeybot /bot /app/state /app/media
+    && mkdir -p /app/state /app/media /app/logs \
+    && chown -R honeybot:honeybot /bot /app/state /app/media /app/logs
 USER honeybot
 
 ENTRYPOINT ["/bot/entrypoint.sh"]

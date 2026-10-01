@@ -4,10 +4,6 @@
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$REPO_DIR/.env}"
 
-DB_CONTAINER="${DB_CONTAINER:-postgres_db_honey}"
-BOT_CONTAINER="${BOT_CONTAINER:-tg_bot_honey}"
-BACKUP_DIR="${BACKUP_DIR:-/data/easysochi/backups_honey}"
-
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
 # Значение переменной из .env (без кавычек); пусто, если нет
@@ -16,6 +12,19 @@ env_get() {
     # «|| true»: отсутствие переменной — не ошибка (скрипты работают под set -euo pipefail)
     { grep -E "^$1=" "$ENV_FILE" || true; } | tail -n 1 | cut -d= -f2- | sed -e 's/^["'\'']//' -e 's/["'\'']$//'
 }
+
+# Имена контейнеров. На тестовом контуре они с префиксом (CONTAINER_PREFIX=test_ в .env —
+# как в deploy/test/docker-compose.override.yml). Любое имя можно задать и явно перед командой.
+CONTAINER_PREFIX="${CONTAINER_PREFIX:-$(env_get CONTAINER_PREFIX)}"
+DB_CONTAINER="${DB_CONTAINER:-${CONTAINER_PREFIX}postgres_db_honey}"
+BOT_CONTAINER="${BOT_CONTAINER:-${CONTAINER_PREFIX}tg_bot_honey}"
+API_CONTAINER="${API_CONTAINER:-${CONTAINER_PREFIX}api_honey}"
+VIEWER_CONTAINER="${VIEWER_CONTAINER:-${CONTAINER_PREFIX}log_viewer_honey}"
+MIGRATE_CONTAINER="${MIGRATE_CONTAINER:-${CONTAINER_PREFIX}migrate_honey}"
+
+# Бэкапы: на бою — RAID-массив /data/easysochi; на тестовом контуре — BACKUP_DIR в .env
+BACKUP_DIR="${BACKUP_DIR:-$(env_get BACKUP_DIR)}"
+BACKUP_DIR="${BACKUP_DIR:-/data/easysochi/backups_honey}"
 
 # Сообщение в чат мониторинга (DB_MONITOR_CHAT_ID). Ошибка отправки не роняет скрипт.
 notify() {

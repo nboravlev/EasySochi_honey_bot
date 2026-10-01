@@ -159,23 +159,19 @@ git clone git@github.com:nboravlev/EasySochi_honey_bot.git
 cp .env.example .env
 
 ```
-3. Примените миграции (создают таблицы и справочники статусов, ролей, размеров):
+3. Подготовьте каталоги данных (раздел «Пути на хосте и права доступа» выше).
+4. Соберите и запустите — скриптом:
 
 ```bash
-docker compose up -d --build db_honey
-docker compose run --rm bot_honey alembic upgrade head
+./ops/deploy.sh
 ```
 
-4. Запустите приложение
+Скрипт соберёт образы с тегом коммита (`honeybot/*`), накатит миграции (одноразовый сервис
+`migrate_honey` — при каждом запуске стека, до бота и API), поднимет стек и дождётся готовности.
+Флаги — `./ops/deploy.sh --help`.
 
-```
-docker compose up -d --build
-```
-
-Код бота берётся из образа, поэтому после изменений нужен `--build`.
-
-**Выкатка обновлений, мониторинг, бэкапы, восстановление после аварии — в [OPERATIONS.md](OPERATIONS.md).**
-Миграции при обновлении применяются той же командой `alembic upgrade head`.
+**Выкатка обновлений, откат, мониторинг, бэкапы, восстановление после аварии — в [OPERATIONS.md](OPERATIONS.md).**
+**Тестовый контур** (`test.easy-sochi.ru`, данные на одном диске с приложением) — [deploy/test/README.md](deploy/test/README.md).
 
 ### Доступ к БД и лог-вьюеру
 
@@ -215,7 +211,8 @@ EasySochi_honey_bot/
 │   └── tools/
 ├── log_viewer/
 ├── web/                      # витрина (index.html) и админка (admin/): React + Vite, nginx.conf, Dockerfile
-├── ops/                      # бэкап, проверка восстановления, аварийное восстановление, автоперезапуск
+├── deploy/test/              # тестовый контур: docker-compose.override.yml, .env.example, README
+├── ops/                      # deploy.sh (сборка и запуск), бэкап, восстановление, автоперезапуск
 ├── OPERATIONS.md           # руководство по эксплуатации
 └── docker-compose.yml
 ```
